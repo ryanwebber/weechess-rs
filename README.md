@@ -1,6 +1,6 @@
 # Weechess
 
-A rust port of Weechess: A wee-litle chess engine library and application.
+A rust port of [Weechess](https://github.com/ryanwebber/weechess/tree/main): A wee-little chess engine library and application.
     
     
 ## About

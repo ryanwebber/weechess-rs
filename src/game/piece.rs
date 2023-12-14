@@ -39,12 +39,14 @@ impl Piece {
 
 impl Display for Piece {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Into::<char>::into(*self))
+    }
+}
+
+impl Into<char> for Piece {
+    fn into(self) -> char {
         const PIECES: &'static [u8] = " PNBRQK".as_bytes();
-        if *self as u8 > 15 {
-            write!(f, "?")
-        } else {
-            write!(f, "{}", PIECES[*self as usize] as char)
-        }
+        PIECES[self as usize] as char
     }
 }
 
@@ -107,9 +109,12 @@ impl Deref for PieceIndex {
 
 impl Display for PieceIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let color = self.color();
-        let piece = self.piece();
-        write!(f, "{}{}", color, piece)
+        let c: char = self.piece().into();
+        if self.color() == Color::White {
+            write!(f, "{}", c.to_ascii_uppercase())
+        } else {
+            write!(f, "{}", c.to_ascii_lowercase())
+        }
     }
 }
 

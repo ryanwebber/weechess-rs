@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Display, Formatter, Write},
 };
 
 use regex::Regex;
@@ -185,9 +185,102 @@ impl TryFrom<Fen<'_>> for game::State {
     }
 }
 
-impl<'a> From<game::State> for Fen<'a> {
-    fn from(_state: game::State) -> Self {
-        todo!()
+impl<'a> From<&game::State> for Fen<'a> {
+    fn from(state: &game::State) -> Self {
+        let mut s = String::new();
+
+        {
+            // Write the board.
+            let pieces = ArrayMap::from(&state.board);
+            for rank in Rank::ALL.iter().rev() {
+                let mut empty_squares: i32 = 0;
+                for file in File::ALL.iter() {
+                    let square = Square::from((*file, *rank));
+                    if pieces[square].some() {
+                        if empty_squares > 0 {
+                            s.push_str(&empty_squares.to_string());
+                            empty_squares = 0;
+                        }
+
+                        write!(s, "{}", pieces[square]).unwrap();
+                    } else {
+                        empty_squares += 1;
+                    }
+                }
+
+                if empty_squares > 0 {
+                    write!(s, "{}", empty_squares).unwrap();
+                }
+
+                if *rank != Rank::ONE {
+                    write!(s, "/").unwrap();
+                }
+            }
+        }
+
+        write!(s, " ").unwrap();
+
+        {
+            // Write the turn to move.
+            let turn_to_move = state.turn_to_move;
+            match turn_to_move {
+                Color::White => write!(s, "w").unwrap(),
+                Color::Black => write!(s, "b").unwrap(),
+            }
+        }
+
+        write!(s, " ").unwrap();
+
+        {
+            // Write the castle rights.
+            let castle_rights = state.castle_rights.clone();
+
+            if castle_rights.iter().all(|v| v.none()) {
+                write!(s, "-").unwrap();
+            } else {
+                if castle_rights[Color::White].kingside {
+                    write!(s, "K").unwrap();
+                }
+                if castle_rights[Color::White].queenside {
+                    write!(s, "Q").unwrap();
+                }
+                if castle_rights[Color::Black].kingside {
+                    write!(s, "k").unwrap();
+                }
+                if castle_rights[Color::Black].queenside {
+                    write!(s, "q").unwrap();
+                }
+            }
+        }
+
+        write!(s, " ").unwrap();
+
+        {
+            // Write the en passant target.
+            let en_passant_target = state.en_passant_target;
+            match en_passant_target {
+                None => write!(s, "-").unwrap(),
+                Some(square) => write!(s, "{}", square).unwrap(),
+            }
+        }
+
+        write!(s, " ").unwrap();
+
+        {
+            // Write the halfmove clock.
+            let halfmove_clock = state.clock.halfmove_clock;
+            write!(s, "{}", halfmove_clock).unwrap();
+        }
+
+        write!(s, " ").unwrap();
+
+        {
+            // Write the fullmove number.
+            let fullmove_number = state.clock.fullmove_number;
+            write!(s, "{}", fullmove_number).unwrap();
+        }
+
+        Fen(Cow::Owned(s))
     }
 }
 
@@ -247,7 +340,7 @@ mod tests {
     fn test_round_trip() {
         let fen1 = Fen::default();
         let state = game::State::try_from(fen1.clone()).unwrap();
-        let fen2 = Fen::from(state);
+        let fen2 = Fen::from(&state);
         assert_eq!(fen1, fen2);
     }
 }

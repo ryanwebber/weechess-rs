@@ -33,10 +33,11 @@ impl File {
     ];
 
     pub fn from_char(c: char) -> Option<Self> {
-        if c < 'a' || c > 'h' {
+        let c = c.to_ascii_uppercase();
+        if c < 'A' || c > 'H' {
             None
         } else {
-            Some(Self(c as u8 - 'a' as u8))
+            Some(Self(c as u8 - 'A' as u8))
         }
     }
 
@@ -51,7 +52,7 @@ impl File {
 
 impl Display for File {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const FILES: &'static [u8] = "abcdefgh".as_bytes();
+        const FILES: &'static [u8] = "ABCDEFGH".as_bytes();
         if self.0 > 7 {
             write!(f, "?")
         } else {
@@ -382,6 +383,59 @@ impl AttackMap {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BitBoard(BitSet);
+
+impl BitBoard {
+    pub const ZERO: Self = Self(BitSet::ZERO);
+
+    pub fn set<I>(&mut self, index: I, value: bool)
+    where
+        I: Into<Index>,
+    {
+        let index: Index = index.into();
+        self.0.set(index.0, value);
+    }
+
+    pub fn pop_lsb(&mut self) -> Option<usize> {
+        let bit = self.0.first_one()?;
+        self.0.set(bit, false);
+        Some(bit)
+    }
+}
+
+impl<I> std::ops::Index<I> for BitBoard
+where
+    I: Into<Index>,
+{
+    type Output = bool;
+
+    fn index(&self, index: I) -> &Self::Output {
+        let index: Index = index.into();
+        &self.0[index.0]
+    }
+}
+
+impl Not for BitBoard {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self(!self.0)
+    }
+}
+
+impl BitOrAssign for BitBoard {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl BitAndAssign for BitBoard {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 &= rhs.0;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     occupancy: BitBoard,
@@ -471,56 +525,16 @@ impl From<&ArrayMap<Square, PieceIndex>> for Board {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct BitBoard(BitSet);
+impl From<&Board> for ArrayMap<Square, PieceIndex> {
+    fn from(board: &Board) -> Self {
+        let mut arr = ArrayMap::filled(PieceIndex::NONE);
+        for square in Square::ALL {
+            if let Some(piece) = board.piece_at(*square) {
+                arr[*square] = piece;
+            }
+        }
 
-impl BitBoard {
-    pub const ZERO: Self = Self(BitSet::ZERO);
-
-    pub fn set<I>(&mut self, index: I, value: bool)
-    where
-        I: Into<Index>,
-    {
-        let index: Index = index.into();
-        self.0.set(index.0, value);
-    }
-
-    pub fn pop_lsb(&mut self) -> Option<usize> {
-        let bit = self.0.first_one()?;
-        self.0.set(bit, false);
-        Some(bit)
-    }
-}
-
-impl<I> std::ops::Index<I> for BitBoard
-where
-    I: Into<Index>,
-{
-    type Output = bool;
-
-    fn index(&self, index: I) -> &Self::Output {
-        let index: Index = index.into();
-        &self.0[index.0]
-    }
-}
-
-impl Not for BitBoard {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        Self(!self.0)
-    }
-}
-
-impl BitOrAssign for BitBoard {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0;
-    }
-}
-
-impl BitAndAssign for BitBoard {
-    fn bitand_assign(&mut self, rhs: Self) {
-        self.0 &= rhs.0;
+        arr
     }
 }
 
@@ -542,14 +556,14 @@ mod tests {
     fn test_file_indexes() {
         assert_eq!(File::A, File(0));
         assert_eq!(File::B, File(1));
-        assert_eq!(File::C.to_string(), "c");
+        assert_eq!(File::C.to_string(), "C");
     }
 
     #[test]
     fn test_square_indexes() {
         assert_eq!(Square::A1, Square(0));
         assert_eq!(Square::B1, Square(1));
-        assert_eq!(Square::C5.to_string(), "c5");
+        assert_eq!(Square::C5.to_string(), "C5");
     }
 
     #[test]

@@ -18,6 +18,14 @@ impl CastleRights {
         kingside: true,
         queenside: true,
     };
+
+    pub fn both(self) -> bool {
+        self == Self::BOTH
+    }
+
+    pub fn none(self) -> bool {
+        self == Self::NONE
+    }
 }
 
 impl Default for CastleRights {

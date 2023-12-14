@@ -1,0 +1,17 @@
+[package]
+name = "weechess-rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "weechess"
+path = "src/lib.rs"
+
+[[bin]]
+name = "weechess"
+path = "src/bin/weechess.rs"
+
+[dependencies]
+bitvec = "1.0.1"
+num_enum = "0.7.1"
+regex = "1.10.2"

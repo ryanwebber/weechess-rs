@@ -27,10 +27,7 @@ where
     I: ArrayKey,
     [(); I::COUNT]:,
 {
-    pub fn new(array: [T; I::COUNT]) -> Self
-    where
-        T: Default,
-    {
+    pub const fn new(array: [T; I::COUNT]) -> Self {
         Self {
             array,
             _marker: PhantomData,

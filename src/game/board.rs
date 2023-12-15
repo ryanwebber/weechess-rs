@@ -9,6 +9,25 @@ use super::{ArrayKey, ArrayMap, Color, Index, Piece, PieceIndex};
 type BitSet = bitvec::BitArr!(for 64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    King,
+    Queen,
+}
+
+impl From<Side> for Index {
+    fn from(value: Side) -> Self {
+        Index(match value {
+            Side::King => 0,
+            Side::Queen => 1,
+        })
+    }
+}
+
+impl ArrayKey for Side {
+    const COUNT: usize = 2;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct File(u8);
 
 impl File {
@@ -120,6 +139,12 @@ impl Rank {
     pub fn opposing_rank(self) -> Self {
         debug_assert!(self.0 < 8);
         Self(7 - self.0)
+    }
+
+    pub fn abs_distance_to(self, other: Self) -> u8 {
+        debug_assert!(self.0 < 8);
+        debug_assert!(other.0 < 8);
+        (self.0 as i8 - other.0 as i8).abs() as u8
     }
 }
 
@@ -320,6 +345,18 @@ impl From<(File, Rank)> for Square {
 impl From<Square> for Index {
     fn from(value: Square) -> Self {
         Index(value.0 as usize)
+    }
+}
+
+impl Into<u8> for Square {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
+
+impl From<u8> for Square {
+    fn from(value: u8) -> Self {
+        Self(value)
     }
 }
 

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::fen;
 
 use super::{ArrayMap, Board, Color, Move, MoveGenerator, Square};
@@ -34,10 +36,34 @@ impl Default for CastleRights {
     }
 }
 
+impl Display for CastleRights {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.none() {
+            write!(f, "-")
+        } else {
+            if self.kingside {
+                write!(f, "K")?
+            }
+
+            if self.queenside {
+                write!(f, "Q")?
+            }
+
+            Ok(())
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clock {
     pub halfmove_clock: usize,
     pub fullmove_number: usize,
+}
+
+impl Display for Clock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.fullmove_number, self.halfmove_clock)
+    }
 }
 
 impl Default for Clock {
@@ -51,14 +77,50 @@ impl Default for Clock {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
-    pub board: Board,
-    pub turn_to_move: Color,
-    pub castle_rights: ArrayMap<Color, CastleRights>,
-    pub en_passant_target: Option<Square>,
-    pub clock: Clock,
+    board: Board,
+    turn_to_move: Color,
+    castle_rights: ArrayMap<Color, CastleRights>,
+    en_passant_target: Option<Square>,
+    clock: Clock,
 }
 
 impl State {
+    pub fn new(
+        board: Board,
+        turn_to_move: Color,
+        castle_rights: ArrayMap<Color, CastleRights>,
+        en_passant_target: Option<Square>,
+        clock: Clock,
+    ) -> Self {
+        Self {
+            board,
+            turn_to_move,
+            castle_rights,
+            en_passant_target,
+            clock,
+        }
+    }
+
+    pub fn board(&self) -> &Board {
+        &self.board
+    }
+
+    pub fn turn_to_move(&self) -> Color {
+        self.turn_to_move
+    }
+
+    pub fn castle_rights(&self, color: Color) -> CastleRights {
+        self.castle_rights[color]
+    }
+
+    pub fn en_passant_target(&self) -> Option<Square> {
+        self.en_passant_target
+    }
+
+    pub fn clock(&self) -> &Clock {
+        &self.clock
+    }
+
     pub fn by_performing_move(state: &Self, mv: &Move) -> Result<State, ()> {
         let movegen = MoveGenerator;
         let moves = movegen.compute(state);

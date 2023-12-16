@@ -12,6 +12,9 @@ name = "weechess"
 path = "src/bin/weechess.rs"
 
 [dependencies]
+anyhow = "1.0.75"
 bitvec = "1.0.1"
+clap = { version = "4.4.11", features = ["derive"] }
+indoc = "2.0.4"
 num_enum = "0.7.1"
 regex = "1.10.2"

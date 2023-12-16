@@ -91,6 +91,10 @@ impl PieceIndex {
         Piece::try_from(self).unwrap()
     }
 
+    pub fn piece_and_color(self) -> (Piece, Color) {
+        (self.piece(), self.color())
+    }
+
     pub fn index(self) -> usize {
         self.0 as usize
     }

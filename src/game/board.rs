@@ -51,6 +51,10 @@ impl File {
         Self::H,
     ];
 
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
     pub fn from_char(c: char) -> Option<Self> {
         let c = c.to_ascii_uppercase();
         if c < 'A' || c > 'H' {
@@ -119,6 +123,10 @@ impl Rank {
         Self::SEVEN,
         Self::EIGHT,
     ];
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
 
     pub fn from_char(c: char) -> Option<Self> {
         if c < '1' || c > '8' {
@@ -554,6 +562,16 @@ impl Board {
     fn attack_map(&self, color: Color) -> &AttackMap {
         self.colored_attack_map[color].get_or_init(|| {
             AttackMap::from_occupancy(&self.piece_occupancy, self.colored_occupancy[color])
+        })
+    }
+
+    pub fn pieces(&self) -> impl Iterator<Item = (Square, PieceIndex)> + '_ {
+        Square::ALL.iter().filter_map(move |square| {
+            if let Some(piece) = self.piece_at(*square) {
+                Some((*square, piece))
+            } else {
+                None
+            }
         })
     }
 }

@@ -38,6 +38,22 @@ pub enum ParseError {
     InvalidTurnToMove,
 }
 
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCastleRights => write!(f, "invalid castle rights"),
+            Self::InvalidFormat => write!(f, "invalid format"),
+            Self::InvalidFullmoveNumber => write!(f, "invalid fullmove number"),
+            Self::InvalidHalfmoveClock => write!(f, "invalid halfmove clock"),
+            Self::InvalidPiece => write!(f, "invalid piece"),
+            Self::InvalidSquare => write!(f, "invalid square"),
+            Self::InvalidTurnToMove => write!(f, "invalid turn to move"),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
+
 impl TryFrom<char> for PieceIndex {
     type Error = ParseError;
 
@@ -134,6 +150,15 @@ impl TryFrom<&str> for Board {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Fen<'a>(Cow<'a, str>);
 
+impl<'a, T> From<T> for Fen<'a>
+where
+    T: Into<Cow<'a, str>>,
+{
+    fn from(value: T) -> Self {
+        Self(value.into())
+    }
+}
+
 impl TryFrom<Fen<'_>> for game::State {
     type Error = ParseError;
 
@@ -175,13 +200,13 @@ impl TryFrom<Fen<'_>> for game::State {
                 .map_err(|_| ParseError::InvalidFullmoveNumber)?,
         };
 
-        Ok(Self {
+        Ok(Self::new(
             board,
             turn_to_move,
             castle_rights,
             en_passant_target,
             clock,
-        })
+        ))
     }
 }
 
@@ -191,7 +216,7 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the board.
-            let pieces = ArrayMap::from(&state.board);
+            let pieces = ArrayMap::from(state.board());
             for rank in Rank::ALL.iter().rev() {
                 let mut empty_squares: i32 = 0;
                 for file in File::ALL.iter() {
@@ -222,7 +247,7 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the turn to move.
-            let turn_to_move = state.turn_to_move;
+            let turn_to_move = state.turn_to_move();
             match turn_to_move {
                 Color::White => write!(s, "w").unwrap(),
                 Color::Black => write!(s, "b").unwrap(),
@@ -233,21 +258,20 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the castle rights.
-            let castle_rights = state.castle_rights.clone();
-
-            if castle_rights.iter().all(|v| v.none()) {
+            if state.castle_rights(Color::White).both() && state.castle_rights(Color::Black).both()
+            {
                 write!(s, "-").unwrap();
             } else {
-                if castle_rights[Color::White].kingside {
+                if state.castle_rights(Color::White).kingside {
                     write!(s, "K").unwrap();
                 }
-                if castle_rights[Color::White].queenside {
+                if state.castle_rights(Color::White).queenside {
                     write!(s, "Q").unwrap();
                 }
-                if castle_rights[Color::Black].kingside {
+                if state.castle_rights(Color::Black).kingside {
                     write!(s, "k").unwrap();
                 }
-                if castle_rights[Color::Black].queenside {
+                if state.castle_rights(Color::Black).queenside {
                     write!(s, "q").unwrap();
                 }
             }
@@ -257,7 +281,7 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the en passant target.
-            let en_passant_target = state.en_passant_target;
+            let en_passant_target = state.en_passant_target();
             match en_passant_target {
                 None => write!(s, "-").unwrap(),
                 Some(square) => write!(s, "{}", square).unwrap(),
@@ -268,7 +292,7 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the halfmove clock.
-            let halfmove_clock = state.clock.halfmove_clock;
+            let halfmove_clock = state.clock().halfmove_clock;
             write!(s, "{}", halfmove_clock).unwrap();
         }
 
@@ -276,7 +300,7 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the fullmove number.
-            let fullmove_number = state.clock.fullmove_number;
+            let fullmove_number = state.clock().fullmove_number;
             write!(s, "{}", fullmove_number).unwrap();
         }
 
@@ -304,7 +328,7 @@ mod tests {
     fn test_default_fen() {
         let fen = Fen::default();
         let state = game::State::try_from(fen).unwrap();
-        let board = state.board;
+        let board = state.board();
 
         for square in Square::ALL {
             if let Some(piece) = board.piece_at(*square) {
@@ -331,9 +355,9 @@ mod tests {
 
         assert_eq!(board.piece_at(Square::E4), None,);
 
-        assert_eq!(state.turn_to_move, Color::White);
-        assert_eq!(state.castle_rights[Color::White], CastleRights::BOTH);
-        assert_eq!(state.en_passant_target, None);
+        assert_eq!(state.turn_to_move(), Color::White);
+        assert_eq!(state.castle_rights(Color::White), CastleRights::BOTH);
+        assert_eq!(state.en_passant_target(), None);
     }
 
     #[test]

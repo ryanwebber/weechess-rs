@@ -1,6 +1,6 @@
 use self::compact::BitSetExt;
 
-use super::{common, Color, Piece, PieceIndex, Side, Square};
+use super::{common, Color, Piece, PieceIndex, Side, Square, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveQuery {
@@ -144,33 +144,42 @@ impl Move {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MoveSet(Vec<Move>);
+pub struct MoveResult(pub Move, pub State);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoveSet(Vec<MoveResult>);
 
 impl MoveSet {
     pub fn empty() -> Self {
         MoveSet(Vec::new())
     }
 
-    pub fn new(moves: Vec<Move>) -> Self {
+    pub fn new(moves: Vec<MoveResult>) -> Self {
         Self(moves)
     }
 
-    pub fn moves(&self) -> &[Move] {
+    pub fn moves(&self) -> &[MoveResult] {
         &self.0
     }
 
-    pub fn find(&self, query: &MoveQuery) -> Option<Move> {
-        self.0.iter().find(|m| query.test(m)).copied()
+    pub fn find(&self, query: &MoveQuery) -> Option<MoveResult> {
+        self.0.iter().find(|m| query.test(&m.0)).cloned()
     }
 
-    pub fn filter<'a>(&'a self, query: MoveQuery) -> impl Iterator<Item = &'a Move> {
-        self.0.iter().filter(move |m| query.test(m))
+    pub fn filter<'a>(&'a self, query: MoveQuery) -> impl Iterator<Item = &'a MoveResult> {
+        self.0.iter().filter(move |m| query.test(&m.0))
     }
 }
 
-impl Into<Vec<Move>> for MoveSet {
-    fn into(self) -> Vec<Move> {
+impl Into<Vec<MoveResult>> for MoveSet {
+    fn into(self) -> Vec<MoveResult> {
         self.0
+    }
+}
+
+impl From<Vec<MoveResult>> for MoveSet {
+    fn from(moves: Vec<MoveResult>) -> Self {
+        Self(moves)
     }
 }
 

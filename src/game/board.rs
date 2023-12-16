@@ -4,7 +4,7 @@ use std::{
     ops::{BitAndAssign, BitOrAssign, Not},
 };
 
-use super::{ArrayKey, ArrayMap, Color, Index, Piece, PieceIndex};
+use super::{ArrayKey, ArrayMap, AttackGenerator, Color, Index, Piece, PieceIndex};
 
 type BitSet = bitvec::BitArr!(for 64);
 
@@ -382,11 +382,6 @@ struct AttackMap {
     pawn: BitBoard,
 }
 
-// TODO: Move this!
-fn generate_attacks(_piece: Piece, _square: Square, _occupancy: BitBoard) -> BitBoard {
-    BitBoard::ZERO
-}
-
 impl AttackMap {
     fn from_occupancy(
         piece_occupancy: &ArrayMap<PieceIndex, BitBoard>,
@@ -400,7 +395,8 @@ impl AttackMap {
                 let mut occupancy = piece_occupancy[piece_index];
                 while let Some(index) = occupancy.pop_lsb() {
                     let square = Square::from(index);
-                    let attacks_this_piece = generate_attacks(*piece, square, own_occupancy);
+                    let attacks_this_piece =
+                        AttackGenerator::compute(&AttackGenerator, *piece, square, own_occupancy);
 
                     all_attacks |= attacks_this_piece;
                     if *piece == Piece::Pawn {
@@ -438,6 +434,18 @@ impl BitBoard {
         let bit = self.0.first_one()?;
         self.0.set(bit, false);
         Some(bit)
+    }
+
+    /// Returns `true` if any bit is set.
+    /// ```
+    /// assert!(!weechess::game::BitBoard::ZERO.any());
+    /// ````
+    pub fn any(&self) -> bool {
+        self.0.any()
+    }
+
+    pub fn all(&self) -> bool {
+        self.0.all()
     }
 }
 

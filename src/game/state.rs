@@ -1,6 +1,6 @@
 use crate::fen;
 
-use super::{ArrayMap, Board, Color, Square};
+use super::{ArrayMap, Board, Color, Move, MoveGenerator, Square};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CastleRights {
@@ -56,6 +56,15 @@ pub struct State {
     pub castle_rights: ArrayMap<Color, CastleRights>,
     pub en_passant_target: Option<Square>,
     pub clock: Clock,
+}
+
+impl State {
+    pub fn by_performing_move(state: &Self, mv: &Move) -> Result<State, ()> {
+        let movegen = MoveGenerator;
+        let moves = movegen.compute(state);
+        let result = moves.iter().find(|m| m.0 == *mv).ok_or(())?.clone();
+        Ok(result.1)
+    }
 }
 
 impl Default for State {

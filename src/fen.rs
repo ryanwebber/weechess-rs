@@ -258,8 +258,7 @@ impl<'a> From<&game::State> for Fen<'a> {
 
         {
             // Write the castle rights.
-            if state.castle_rights(Color::White).both() && state.castle_rights(Color::Black).both()
-            {
+            if Color::ALL.iter().all(|c| state.castle_rights(*c).none()) {
                 write!(s, "-").unwrap();
             } else {
                 if state.castle_rights(Color::White).kingside {

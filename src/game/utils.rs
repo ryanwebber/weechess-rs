@@ -39,6 +39,23 @@ impl<I, T> ArrayMap<I, T>
 where
     I: ArrayKey,
     [(); I::COUNT]:,
+{
+    pub fn from_fn<F>(f: F) -> Self
+    where
+        F: FnMut(usize) -> T,
+    {
+        let arr: [T; I::COUNT] = core::array::from_fn(f);
+        Self {
+            array: arr,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<I, T> ArrayMap<I, T>
+where
+    I: ArrayKey,
+    [(); I::COUNT]:,
     T: Copy,
 {
     pub const fn filled(value: T) -> Self {

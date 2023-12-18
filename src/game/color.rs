@@ -13,6 +13,13 @@ pub enum Color {
 
 impl Color {
     pub const ALL: &'static [Self] = &[Self::White, Self::Black];
+
+    pub fn opposing_color(self) -> Self {
+        match self {
+            Self::White => Self::Black,
+            Self::Black => Self::White,
+        }
+    }
 }
 
 impl Display for Color {

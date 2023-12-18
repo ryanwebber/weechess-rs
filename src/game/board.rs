@@ -1,17 +1,24 @@
 use std::{
     cell::OnceCell,
     fmt::Display,
-    ops::{BitAndAssign, BitOrAssign, Not},
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref, Not},
 };
+
+use bitvec::prelude::*;
+use bitvec::view::BitView;
 
 use super::{ArrayKey, ArrayMap, AttackGenerator, Color, Index, Piece, PieceIndex};
 
-type BitSet = bitvec::BitArr!(for 64);
+type BitSet = bitvec::BitArr!(for 64, in u64, Lsb0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     King,
     Queen,
+}
+
+impl Side {
+    pub const ALL: &'static [Self] = &[Self::King, Self::Queen];
 }
 
 impl From<Side> for Index {
@@ -20,6 +27,18 @@ impl From<Side> for Index {
             Side::King => 0,
             Side::Queen => 1,
         })
+    }
+}
+
+impl TryFrom<usize> for Side {
+    type Error = ();
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::King),
+            1 => Ok(Self::Queen),
+            _ => Err(()),
+        }
     }
 }
 
@@ -184,6 +203,12 @@ impl ArrayKey for Rank {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Offset {
+    pub file: i8,
+    pub rank: i8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Square(u8);
 
 impl Square {
@@ -330,6 +355,16 @@ impl Square {
     pub fn rank_file(self) -> (Rank, File) {
         (self.rank(), self.file())
     }
+
+    pub fn offset(self, offset: Offset) -> Option<Self> {
+        let file = self.file().0 as i8 + offset.file;
+        let rank = self.rank().0 as i8 + offset.rank;
+        if file < 0 || file > 7 || rank < 0 || rank > 7 {
+            None
+        } else {
+            Some(Self::from((Rank(rank as u8), File(file as u8))))
+        }
+    }
 }
 
 impl Display for Square {
@@ -403,8 +438,12 @@ impl AttackMap {
                 let mut occupancy = piece_occupancy[piece_index];
                 while let Some(index) = occupancy.pop_lsb() {
                     let square = Square::from(index);
-                    let attacks_this_piece =
-                        AttackGenerator::compute(&AttackGenerator, *piece, square, own_occupancy);
+                    let attacks_this_piece = AttackGenerator::compute(
+                        &AttackGenerator,
+                        piece_index,
+                        square,
+                        own_occupancy,
+                    );
 
                     all_attacks |= attacks_this_piece;
                     if *piece == Piece::Pawn {
@@ -424,7 +463,7 @@ impl AttackMap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct BitBoard(BitSet);
 
 impl BitBoard {
@@ -443,17 +482,26 @@ impl BitBoard {
         self.0.set(bit, false);
         Some(bit)
     }
+}
 
-    /// Returns `true` if any bit is set.
-    /// ```
-    /// assert!(!weechess::game::BitBoard::ZERO.any());
-    /// ````
-    pub fn any(&self) -> bool {
-        self.0.any()
+impl Deref for BitBoard {
+    type Target = BitSet;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
+}
 
-    pub fn all(&self) -> bool {
-        self.0.all()
+impl From<u64> for BitBoard {
+    fn from(value: u64) -> Self {
+        let slice = value.view_bits::<Lsb0>();
+        Self(BitSet::try_from(slice).unwrap())
+    }
+}
+
+impl Into<u64> for BitBoard {
+    fn into(self) -> u64 {
+        self.0.load::<u64>()
     }
 }
 
@@ -477,15 +525,47 @@ impl Not for BitBoard {
     }
 }
 
+impl BitOr for BitBoard {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
 impl BitOrAssign for BitBoard {
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
     }
 }
 
+impl BitAnd for BitBoard {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
 impl BitAndAssign for BitBoard {
     fn bitand_assign(&mut self, rhs: Self) {
         self.0 &= rhs.0;
+    }
+}
+
+impl std::fmt::Debug for BitBoard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f)?;
+        for rank in Rank::ALL.iter().rev() {
+            for file in File::ALL.iter() {
+                let square = Square::from((*rank, *file));
+                write!(f, "{}", if self[square] { '1' } else { '.' })?;
+            }
+
+            writeln!(f)?;
+        }
+
+        Ok(())
     }
 }
 

@@ -107,7 +107,8 @@ mod repl {
     use clap::{Parser, Subcommand};
 
     #[derive(Parser)]
-    #[command(author, version, about, long_about = None)]
+    #[command(name = "repl")]
+    #[command(author, version, long_about = None)]
     pub struct Repl {
         #[command(subcommand)]
         pub command: Option<Commands>,

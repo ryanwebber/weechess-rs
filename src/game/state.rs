@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::fen;
 
-use super::{ArrayMap, Board, Color, Move, MoveGenerator, Square};
+use super::{ArrayMap, Board, Color, Move, Side, Square};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CastleRights {
@@ -27,6 +27,13 @@ impl CastleRights {
 
     pub fn none(self) -> bool {
         self == Self::NONE
+    }
+
+    pub fn for_side(self, side: Side) -> bool {
+        match side {
+            Side::King => self.kingside,
+            Side::Queen => self.queenside,
+        }
     }
 }
 
@@ -121,11 +128,8 @@ impl State {
         &self.clock
     }
 
-    pub fn by_performing_move(state: &Self, mv: &Move) -> Result<State, ()> {
-        let movegen = MoveGenerator;
-        let moves = movegen.compute(state);
-        let result = moves.iter().find(|m| m.0 == *mv).ok_or(())?.clone();
-        Ok(result.1)
+    pub fn by_performing_move(_state: &Self, _mv: &Move) -> Result<State, ()> {
+        todo!()
     }
 }
 

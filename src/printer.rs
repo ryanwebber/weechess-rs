@@ -62,7 +62,7 @@ impl Display for GamePrinter<'_> {
             write!(f, " ")?;
 
             for c in line.chars() {
-                match c {
+                let c = match c {
                     '.' => {
                         let rank = Rank::from_index(square_index / 8).unwrap();
                         let file = File::from_index(square_index % 8).unwrap();

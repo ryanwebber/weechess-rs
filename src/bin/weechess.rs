@@ -82,7 +82,7 @@ fn run() -> Result<(), anyhow::Error> {
                 };
 
                 match repl.command {
-                    Some(repl::Commands::Display) => {
+                    Some(repl::Commands::State) => {
                         println!("{}", printer::GamePrinter::new(&game_state));
                     }
                     Some(repl::Commands::Exit) => break,
@@ -117,7 +117,8 @@ mod repl {
     #[derive(Subcommand)]
     pub enum Commands {
         /// Print out the current state of the board
-        Display,
+        #[command(aliases = ["s"])]
+        State,
 
         /// Exit the REPL
         Exit,

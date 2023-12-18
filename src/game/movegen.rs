@@ -1,34 +1,11 @@
 use std::ops::Deref;
 
+use crate::game::Offset;
+
 use super::{
-    ArrayMap, AttackGenerator, BitBoard, CastleRights, Color, Move, MoveResult, MoveSet, Piece,
-    PieceIndex, Side, Square, State,
+    AttackGenerator, BitBoard, CastleRights, Color, Move, MoveResult, MoveSet, Piece, PieceIndex,
+    Rank, Side, Square, State, CASTLE_CHECK_MASKS, CASTLE_PATH_MASKS, RANK_MASKS,
 };
-
-use lazy_static::lazy_static;
-
-lazy_static! {
-    pub static ref CASTLE_CHECK_MASKS: ArrayMap<Side, ArrayMap<Color, BitBoard>> = ArrayMap::new([
-        ArrayMap::new([
-            BitBoard::from(0x0000000000000060u64),
-            BitBoard::from(0x6000000000000000u64),
-        ]),
-        ArrayMap::new([
-            BitBoard::from(0x000000000000000eu64),
-            BitBoard::from(0x0000e00000000000000u64),
-        ]),
-    ]);
-    pub static ref CASTLE_PATH_MASKS: ArrayMap<Side, ArrayMap<Color, BitBoard>> = ArrayMap::new([
-        ArrayMap::new([
-            BitBoard::from(0x0000000000000070u64),
-            BitBoard::from(0x7000000000000000u64),
-        ]),
-        ArrayMap::new([
-            BitBoard::from(0x000000000000001cu64),
-            BitBoard::from(0x0001c00000000000000u64),
-        ]),
-    ]);
-}
 
 pub struct MoveGenerationBuffer {
     pub legal_moves: Vec<MoveResult>,
@@ -103,8 +80,114 @@ impl MoveGenerator {
     }
 
     fn compute_pawn_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
-        _ = (helper, result);
-        todo!()
+        let pawn = helper.to_own_piece(Piece::Pawn);
+        let pawns = helper.own_piece(Piece::Pawn);
+
+        const PROMOTION_TYPES: &'static [Piece] =
+            &[Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight];
+
+        // Simple pawn push
+        {
+            let positions = pawns.shift(helper.turn_to_move().forward()) & helper.board().vacancy();
+            let promotion_positions = positions & helper.own_backrank_mask();
+            let non_promption_positions = positions & !helper.own_backrank_mask();
+
+            let backwards = helper.turn_to_move().backward();
+
+            // Non-promotion moves
+            for pos in non_promption_positions.iter_ones() {
+                let target = Square::from(pos);
+                let origin = target.offset(backwards).unwrap();
+                let mv = Move::by_moving(pawn, origin, target);
+                result.push(mv);
+            }
+
+            // Promotion moves
+            for pos in promotion_positions.iter_ones() {
+                let target = Square::from(pos);
+                let origin = target.offset(backwards).unwrap();
+                for piece in PROMOTION_TYPES {
+                    let mv = Move::by_promoting(pawn, origin, target, *piece);
+                    result.push(mv);
+                }
+            }
+        }
+
+        // Double pawn push
+        {
+            let pawns = pawns & helper.own_pawn_home_rank_mask();
+            let positons = (0..2).fold(pawns, |pawns, _| {
+                pawns.shift(helper.turn_to_move().forward()) & helper.board().vacancy()
+            });
+
+            for pos in positons.iter_ones() {
+                let target = Square::from(pos);
+                let origin = (0..2).fold(target, |p, _| {
+                    p.offset(helper.turn_to_move().backward()).unwrap()
+                });
+
+                let mv = Move::by_moving(pawn, origin, target);
+                result.push(mv);
+            }
+        }
+
+        // Captures
+        {
+            const OFFSETS: &'static [(Offset, Offset)] =
+                &[(Offset::EAST, Offset::WEST), (Offset::EAST, Offset::WEST)];
+
+            for (file_offset, inverted_file_offset) in OFFSETS {
+                let inverted_capture_offset =
+                    helper.turn_to_move().backward() + (*inverted_file_offset);
+
+                let attacks = pawns
+                    .shift(helper.turn_to_move().forward())
+                    .shift(*file_offset);
+
+                let attacks_with_promotion = attacks & helper.own_backrank_mask();
+                let attacks_without_promotion = attacks & !helper.own_backrank_mask();
+                let attacks_with_en_passant = attacks
+                    & helper
+                        .en_passant_target()
+                        .map(|s| BitBoard::from(s))
+                        .unwrap_or(BitBoard::ZERO);
+
+                // Non-promotion captures
+                for pos in attacks_without_promotion.iter_ones() {
+                    let target = Square::from(pos);
+                    let origin = target.offset(inverted_capture_offset).unwrap();
+                    let capture = helper.board().piece_at(target).unwrap();
+                    let mv = Move::by_capturing(pawn, origin, target, capture.piece());
+                    result.push(mv);
+                }
+
+                // Promotion captures
+                for pos in attacks_with_promotion.iter_ones() {
+                    let target = Square::from(pos);
+                    let origin = target.offset(inverted_capture_offset).unwrap();
+                    let capture = helper.board().piece_at(target).unwrap();
+                    for piece in PROMOTION_TYPES {
+                        let mv = Move::by_capture_promoting(
+                            pawn,
+                            origin,
+                            target,
+                            capture.piece(),
+                            *piece,
+                        );
+
+                        result.push(mv);
+                    }
+                }
+
+                // En passant captures
+                if let Some(bit) = attacks_with_en_passant.first_one() {
+                    let target = Square::from(bit);
+                    let origin = target.offset(inverted_capture_offset).unwrap();
+                    let mv = Move::by_en_passant(pawn, origin, target);
+                    result.push(mv);
+                }
+            }
+        }
     }
 
     fn compute_knight_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
@@ -119,33 +202,6 @@ impl MoveGenerator {
     }
 
     fn compute_king_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
-        /*
-               auto color = helper.color_to_move();
-               auto kings = helper.occupancy_to_move(Piece::Type::King);
-               while (kings.any()) {
-                   auto origin = kings.pop_lsb().value();
-                   auto jumps = attack_maps::generate_king_attacks(origin)
-                       & (helper.attackable() | helper.board().non_occupancy()) & ~helper.threats();
-                   expand_moves(helper, moves, origin, jumps, Piece::Type::King);
-               }
-
-               if (helper.castle_rights_to_move().can_castle_kingside) {
-                   auto path_blocks = helper.board().shared_occupancy() & castling::kingside_path_mask[color];
-                   auto path_checks = helper.threats() & castling::kingside_check_mask[color];
-                   if (path_blocks.none() && path_checks.none()) {
-                       moves.push_back(Move::by_castling(helper.piece_to_move(Piece::Type::King), CastleSide::Kingside));
-                   }
-               }
-
-               if (helper.castle_rights_to_move().can_castle_queenside) {
-                   auto path_blocks = helper.board().shared_occupancy() & castling::queenside_path_mask[color];
-                   auto path_checks = helper.threats() & castling::queenside_check_mask[color];
-                   if (path_blocks.none() && path_checks.none()) {
-                       moves.push_back(Move::by_castling(helper.piece_to_move(Piece::Type::King), CastleSide::Queenside));
-                   }
-               }
-        */
-
         let color = helper.turn_to_move();
         let kings = helper.own_piece(Piece::King);
         for bit in kings.iter_ones() {
@@ -169,18 +225,39 @@ impl MoveGenerator {
     }
 
     fn compute_bishop_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
-        _ = (helper, result);
-        todo!()
+        let occupancy = helper.board().occupancy();
+        let bishops = helper.own_piece(Piece::Bishop);
+        let own_pieces = helper.own_pieces();
+        for bit in bishops.iter_ones() {
+            let origin = Square::from(bit);
+            let attacks = helper.generator.compute_bishop_attacks(origin, occupancy);
+            let slides = attacks & !own_pieces;
+            helper.expand_moves(origin, slides, Piece::Bishop, result);
+        }
     }
 
     fn compute_rook_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
-        _ = (helper, result);
-        todo!()
+        let occupancy = helper.board().occupancy();
+        let rooks = helper.own_piece(Piece::Rook);
+        let own_pieces = helper.own_pieces();
+        for bit in rooks.iter_ones() {
+            let origin = Square::from(bit);
+            let attacks = helper.generator.compute_rook_attacks(origin, occupancy);
+            let slides = attacks & !own_pieces;
+            helper.expand_moves(origin, slides, Piece::Rook, result);
+        }
     }
 
     fn compute_queen_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
-        _ = (helper, result);
-        todo!()
+        let occupancy = helper.board().occupancy();
+        let queens = helper.own_piece(Piece::Queen);
+        let own_pieces = helper.own_pieces();
+        for bit in queens.iter_ones() {
+            let origin = Square::from(bit);
+            let attacks = helper.generator.compute_queen_attacks(origin, occupancy);
+            let slides = attacks & !own_pieces;
+            helper.expand_moves(origin, slides, Piece::Queen, result);
+        }
     }
 }
 
@@ -203,12 +280,22 @@ impl GameStateHelper<'_> {
         self.castle_rights(self.turn_to_move())
     }
 
-    fn to_own_piece(&self, piece: Piece) -> PieceIndex {
-        PieceIndex::new(self.turn_to_move(), piece)
+    fn own_backrank_mask(&self) -> BitBoard {
+        match self.turn_to_move() {
+            Color::White => RANK_MASKS[Rank::EIGHT],
+            Color::Black => RANK_MASKS[Rank::ONE],
+        }
     }
 
-    fn opposing_piece(&self, piece: Piece) -> BitBoard {
-        self.board().piece_occupancy(self.to_opposing_piece(piece))
+    fn own_pawn_home_rank_mask(&self) -> BitBoard {
+        match self.turn_to_move() {
+            Color::White => RANK_MASKS[Rank::TWO],
+            Color::Black => RANK_MASKS[Rank::SEVEN],
+        }
+    }
+
+    fn to_own_piece(&self, piece: Piece) -> PieceIndex {
+        PieceIndex::new(self.turn_to_move(), piece)
     }
 
     fn opposing_pieces(&self) -> BitBoard {
@@ -219,10 +306,6 @@ impl GameStateHelper<'_> {
     fn opposing_attacks(&self) -> BitBoard {
         self.board()
             .colored_attacks(self.turn_to_move().opposing_color())
-    }
-
-    fn to_opposing_piece(&self, piece: Piece) -> PieceIndex {
-        PieceIndex::new(self.turn_to_move().opposing_color(), piece)
     }
 
     fn expand_moves(

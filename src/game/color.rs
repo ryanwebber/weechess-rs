@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 
-use super::{utils, ArrayKey, PieceIndex};
+use super::{utils, ArrayKey, Offset, PieceIndex};
 
 #[repr(u8)]
 #[derive(IntoPrimitive, TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18,6 +18,20 @@ impl Color {
         match self {
             Self::White => Self::Black,
             Self::Black => Self::White,
+        }
+    }
+
+    pub fn forward(self) -> Offset {
+        match self {
+            Self::White => Offset::NORTH,
+            Self::Black => Offset::SOUTH,
+        }
+    }
+
+    pub fn backward(self) -> Offset {
+        match self {
+            Self::White => Offset::SOUTH,
+            Self::Black => Offset::NORTH,
         }
     }
 }

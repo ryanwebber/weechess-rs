@@ -105,7 +105,9 @@ impl AttackGenerator {
 }
 
 mod data {
-    use crate::game::{attacks::Direction, ArrayMap, BitBoard, Color, File, Offset, Rank, Square};
+    use crate::game::{
+        attacks::Direction, common, ArrayMap, BitBoard, Color, File, Offset, Rank, Square,
+    };
 
     use lazy_static::lazy_static;
 
@@ -229,10 +231,10 @@ mod data {
     fn compute_rook_slide_masks() -> SquareMap<BitBoard> {
         let mut masks = SquareMap::new([BitBoard::ZERO; 64]);
         for square in Square::ALL {
-            masks[*square] |= RAYS[Direction::West][*square] & !FILE_MASKS[File::A];
-            masks[*square] |= RAYS[Direction::East][*square] & !FILE_MASKS[File::H];
-            masks[*square] |= RAYS[Direction::North][*square] & !RANK_MASKS[Rank::EIGHT];
-            masks[*square] |= RAYS[Direction::South][*square] & !RANK_MASKS[Rank::ONE];
+            masks[*square] |= RAYS[Direction::West][*square] & !common::FILE_MASKS[File::A];
+            masks[*square] |= RAYS[Direction::East][*square] & !common::FILE_MASKS[File::H];
+            masks[*square] |= RAYS[Direction::North][*square] & !common::RANK_MASKS[Rank::EIGHT];
+            masks[*square] |= RAYS[Direction::South][*square] & !common::RANK_MASKS[Rank::ONE];
         }
 
         masks
@@ -292,13 +294,13 @@ mod data {
         let mut masks = SquareMap::new([BitBoard::ZERO; 64]);
         for square in Square::ALL {
             masks[*square] |= RAYS[Direction::NorthWest][*square]
-                & !(FILE_MASKS[File::A] | RANK_MASKS[Rank::EIGHT]);
+                & !(common::FILE_MASKS[File::A] | common::RANK_MASKS[Rank::EIGHT]);
             masks[*square] |= RAYS[Direction::SouthWest][*square]
-                & !(FILE_MASKS[File::A] | RANK_MASKS[Rank::ONE]);
+                & !(common::FILE_MASKS[File::A] | common::RANK_MASKS[Rank::ONE]);
             masks[*square] |= RAYS[Direction::NorthEast][*square]
-                & !(FILE_MASKS[File::H] | RANK_MASKS[Rank::EIGHT]);
+                & !(common::FILE_MASKS[File::H] | common::RANK_MASKS[Rank::EIGHT]);
             masks[*square] |= RAYS[Direction::SouthEast][*square]
-                & !(FILE_MASKS[File::H] | RANK_MASKS[Rank::ONE]);
+                & !(common::FILE_MASKS[File::H] | common::RANK_MASKS[Rank::ONE]);
         }
 
         masks
@@ -534,29 +536,6 @@ mod data {
         5, 5, 5, 5, 5, 5, 5, 5,
         6, 5, 5, 5, 5, 5, 5, 6,
     ]);
-
-    lazy_static! {
-        pub static ref RANK_MASKS: ArrayMap<Rank, BitBoard> = ArrayMap::new([
-            BitBoard::from(0xffu64),
-            BitBoard::from(0xff00u64),
-            BitBoard::from(0xff0000u64),
-            BitBoard::from(0xff000000u64),
-            BitBoard::from(0xff00000000u64),
-            BitBoard::from(0xff0000000000u64),
-            BitBoard::from(0xff000000000000u64),
-            BitBoard::from(0xff00000000000000u64),
-        ]);
-        pub static ref FILE_MASKS: ArrayMap<File, BitBoard> = ArrayMap::new([
-            BitBoard::from(0x0101010101010101u64),
-            BitBoard::from(0x0202020202020202u64),
-            BitBoard::from(0x0404040404040404u64),
-            BitBoard::from(0x0808080808080808u64),
-            BitBoard::from(0x1010101010101010u64),
-            BitBoard::from(0x2020202020202020u64),
-            BitBoard::from(0x4040404040404040u64),
-            BitBoard::from(0x8080808080808080u64),
-        ]);
-    }
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use std::{
     cell::OnceCell,
     fmt::Display,
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref, Not},
+    ops::{Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref, DerefMut, Not},
 };
 
 use bitvec::prelude::*;
@@ -206,6 +206,24 @@ impl ArrayKey for Rank {
 pub struct Offset {
     pub file: i8,
     pub rank: i8,
+}
+
+impl Offset {
+    pub const NORTH: Self = Self { file: 0, rank: 1 };
+    pub const SOUTH: Self = Self { file: 0, rank: -1 };
+    pub const EAST: Self = Self { file: 1, rank: 0 };
+    pub const WEST: Self = Self { file: -1, rank: 0 };
+}
+
+impl Add for Offset {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            file: self.file + rhs.file,
+            rank: self.rank + rhs.rank,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -482,6 +500,18 @@ impl BitBoard {
         self.0.set(bit, false);
         Some(bit)
     }
+
+    pub fn shift(&self, offset: Offset) -> Self {
+        let mut result = *self;
+        let shift = offset.file + 8 * offset.rank;
+        if shift > 0 {
+            result.shift_left(shift as usize)
+        } else {
+            result.shift_right(shift.abs() as usize)
+        }
+
+        result
+    }
 }
 
 impl Deref for BitBoard {
@@ -489,6 +519,26 @@ impl Deref for BitBoard {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for BitBoard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<BitSet> for BitBoard {
+    fn from(value: BitSet) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Square> for BitBoard {
+    fn from(value: Square) -> Self {
+        let mut b = Self::ZERO;
+        b.set(value, true);
+        b
     }
 }
 

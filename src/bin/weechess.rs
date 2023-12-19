@@ -1,6 +1,10 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use weechess::{fen::Fen, game, printer};
+use weechess::{
+    fen::Fen,
+    game::{self, MoveGenerationBuffer, MoveResult},
+    printer,
+};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -35,6 +39,29 @@ enum Commands {
     },
 }
 
+fn perft(state: &game::State, buffers: &mut [game::MoveGenerationBuffer], count: &mut usize) {
+    let generator = game::MoveGenerator;
+    if let Some((buffer, remaining_buffers)) = buffers.split_first_mut() {
+        generator.compute_legal_moves_into(&state, buffer);
+
+        // Quick perf optimization to avoid a function call.
+        if remaining_buffers.is_empty() {
+            *count += buffer.legal_moves.len();
+            return;
+        }
+
+        for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
+            let mut c0 = 0;
+            perft(new_state, remaining_buffers, &mut c0);
+            if remaining_buffers.len() == 4 {
+                println!("{}: {} ({})", mv.peg_notation(), c0, Fen::from(new_state));
+            }
+
+            *count += c0;
+        }
+    };
+}
+
 fn run() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
@@ -52,7 +79,7 @@ fn run() -> Result<(), anyhow::Error> {
 
             Ok(())
         }
-        Some(Commands::Perft { fen, .. }) => {
+        Some(Commands::Perft { fen, depth }) => {
             let game_state = {
                 if let Some(fen) = &fen {
                     game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
@@ -61,7 +88,15 @@ fn run() -> Result<(), anyhow::Error> {
                 }
             };
 
-            _ = game_state;
+            let mut buffers: Vec<MoveGenerationBuffer> =
+                std::iter::repeat_with(MoveGenerationBuffer::new)
+                    .take(depth)
+                    .collect();
+
+            let mut count = 0;
+            perft(&game_state, &mut buffers[..], &mut count);
+
+            println!("{} nodes", count);
 
             Ok(())
         }

@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::game::Offset;
+use crate::{game::Offset, printer::GamePrinter};
 
 use super::{
     AttackGenerator, BitBoard, CastleRights, Color, Move, MoveResult, MoveSet, Piece, PieceIndex,
@@ -51,21 +51,30 @@ impl MoveGenerator {
         let moves = &mut buffer.psuedo_legal_moves;
         self.compute_psuedo_legal_moves(state, moves);
 
-        for m in moves.iter() {
-            if let Ok(next_state) = State::by_performing_move(state, m) {
-                let king = PieceIndex::new(state.turn_to_move(), Piece::King);
-                let king_position = next_state.board().piece_occupancy(king);
-                let attacked_positions = next_state
-                    .board()
-                    .colored_attacks(next_state.turn_to_move());
+        let king = PieceIndex::new(state.turn_to_move(), Piece::King);
 
-                if (king_position & attacked_positions).not_any() {
-                    buffer.legal_moves.push(MoveResult(*m, next_state));
-                }
+        for m in moves.iter() {
+            let next_state = State::by_performing_move(state, m).unwrap();
+            let king_position = next_state.board().piece_occupancy(king);
+            let attacked_positions = next_state
+                .board()
+                .colored_attacks(next_state.turn_to_move());
+
+            if (king_position & attacked_positions).not_any() {
+                buffer.legal_moves.push(MoveResult(*m, next_state));
             }
         }
 
-        todo!()
+        return;
+
+        println!("{}", GamePrinter::new(state));
+        println!("  Moves ({}):", moves.len());
+
+        for (i, m) in buffer.legal_moves.iter().enumerate() {
+            println!("    [{}]: {}", i, m.0.peg_notation());
+        }
+
+        println!();
     }
 
     fn compute_psuedo_legal_moves(&self, state: &State, result: &mut Vec<Move>) {
@@ -134,7 +143,7 @@ impl MoveGenerator {
         // Captures
         {
             const OFFSETS: &'static [(Offset, Offset)] =
-                &[(Offset::EAST, Offset::WEST), (Offset::EAST, Offset::WEST)];
+                &[(Offset::EAST, Offset::WEST), (Offset::WEST, Offset::EAST)];
 
             for (file_offset, inverted_file_offset) in OFFSETS {
                 let inverted_capture_offset =
@@ -142,7 +151,8 @@ impl MoveGenerator {
 
                 let attacks = pawns
                     .shift(helper.turn_to_move().forward())
-                    .shift(*file_offset);
+                    .shift(*file_offset)
+                    & helper.opposing_pieces();
 
                 let attacks_with_promotion = attacks & helper.own_backrank_mask();
                 let attacks_without_promotion = attacks & !helper.own_backrank_mask();
@@ -316,19 +326,16 @@ impl GameStateHelper<'_> {
         result: &mut Vec<Move>,
     ) {
         let piece = self.to_own_piece(piece);
-        let attacks = self.opposing_pieces() & destinations;
 
-        for bit in attacks.iter_ones() {
+        for bit in destinations.iter_ones() {
             let target = Square::from(bit);
             if let Some(capture) = self.board().piece_at(target) {
                 let mv = Move::by_capturing(piece, origin, target, capture.piece());
                 result.push(mv);
+            } else {
+                let mv = Move::by_moving(piece, origin, target);
+                result.push(mv);
             }
-        }
-
-        for bit in (!self.opposing_pieces() & attacks).iter_ones() {
-            let mv = Move::by_moving(piece, origin, Square::from(bit));
-            result.push(mv);
         }
     }
 }
@@ -342,6 +349,4 @@ impl Deref for GameStateHelper<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    //
-}
+mod tests {}

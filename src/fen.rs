@@ -329,14 +329,6 @@ mod tests {
         let state = game::State::try_from(fen).unwrap();
         let board = state.board();
 
-        for square in Square::ALL {
-            if let Some(piece) = board.piece_at(*square) {
-                println!("{}: [{}]", square, piece);
-            } else {
-                println!("{}: [ ]", square);
-            }
-        }
-
         assert_eq!(
             board.piece_at(Square::A1),
             Some(PieceIndex::new(Color::White, Piece::Rook))

@@ -31,7 +31,7 @@ lazy_static! {
         BitBoard::from(0x4040404040404040u64),
         BitBoard::from(0x8080808080808080u64),
     ]);
-    pub static ref CASTLE_CHECK_MASKS: ArrayMap<Side, ArrayMap<Color, BitBoard>> = ArrayMap::new([
+    pub static ref CASTLE_PATH_MASKS: ArrayMap<Side, ArrayMap<Color, BitBoard>> = ArrayMap::new([
         ArrayMap::new([
             BitBoard::from(0x0000000000000060u64),
             BitBoard::from(0x6000000000000000u64),
@@ -41,7 +41,7 @@ lazy_static! {
             BitBoard::from(0x0000e00000000000000u64),
         ]),
     ]);
-    pub static ref CASTLE_PATH_MASKS: ArrayMap<Side, ArrayMap<Color, BitBoard>> = ArrayMap::new([
+    pub static ref CASTLE_CHECK_MASKS: ArrayMap<Side, ArrayMap<Color, BitBoard>> = ArrayMap::new([
         ArrayMap::new([
             BitBoard::from(0x0000000000000070u64),
             BitBoard::from(0x7000000000000000u64),

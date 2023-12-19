@@ -7,7 +7,7 @@ use std::{
 use bitvec::prelude::*;
 use bitvec::view::BitView;
 
-use super::{ArrayKey, ArrayMap, AttackGenerator, Color, Index, Piece, PieceIndex};
+use super::{ArrayKey, ArrayMap, AttackGenerator, Color, Index, Piece, PieceIndex, FILE_MASKS};
 
 type BitSet = bitvec::BitArr!(for 64, in u64, Lsb0);
 
@@ -445,28 +445,28 @@ struct AttackMap {
 
 impl AttackMap {
     fn from_occupancy(
+        color: Color,
         piece_occupancy: &ArrayMap<PieceIndex, BitBoard>,
+        shared_occupancy: BitBoard,
         own_occupancy: BitBoard,
     ) -> Self {
         let mut all_attacks = BitBoard::ZERO;
         let mut pawn_attacks = BitBoard::ZERO;
-        for color in Color::ALL {
-            for piece in Piece::ALL {
-                let piece_index = PieceIndex::new(*color, *piece);
-                let mut occupancy = piece_occupancy[piece_index];
-                while let Some(index) = occupancy.pop_lsb() {
-                    let square = Square::from(index);
-                    let attacks_this_piece = AttackGenerator::compute(
-                        &AttackGenerator,
-                        piece_index,
-                        square,
-                        own_occupancy,
-                    );
+        for piece in Piece::ALL {
+            let piece_index = PieceIndex::new(color, *piece);
+            let mut occupancy = piece_occupancy[piece_index];
+            while let Some(index) = occupancy.pop_lsb() {
+                let square = Square::from(index);
+                let attacks_this_piece = AttackGenerator::compute(
+                    &AttackGenerator,
+                    piece_index,
+                    square,
+                    shared_occupancy,
+                );
 
-                    all_attacks |= attacks_this_piece;
-                    if *piece == Piece::Pawn {
-                        pawn_attacks |= attacks_this_piece;
-                    }
+                all_attacks |= attacks_this_piece;
+                if *piece == Piece::Pawn {
+                    pawn_attacks |= attacks_this_piece;
                 }
             }
         }
@@ -503,11 +503,23 @@ impl BitBoard {
 
     pub fn shift(&self, offset: Offset) -> Self {
         let mut result = *self;
-        let shift = offset.file + 8 * offset.rank;
-        if shift > 0 {
-            result.shift_left(shift as usize)
-        } else {
-            result.shift_right(shift.abs() as usize)
+        if offset.rank > 0 {
+            result.shift_right((offset.rank * 8) as usize);
+        } else if offset.rank < 0 {
+            result.shift_left((offset.rank.abs() * 8) as usize);
+        }
+
+        // TODO: Optimize this
+        if offset.file > 0 {
+            for _ in 0..offset.file {
+                result &= !FILE_MASKS[File::H];
+                result.shift_right(1);
+            }
+        } else if offset.file < 0 {
+            for _ in 0..offset.file.abs() {
+                result &= !FILE_MASKS[File::A];
+                result.shift_left(1);
+            }
         }
 
         result
@@ -664,18 +676,6 @@ impl Board {
         self.piece_occupancy[piece_index]
     }
 
-    pub fn colored_occupancy(&self, color: Color) -> BitBoard {
-        self.colored_occupancy[color]
-    }
-
-    pub fn colored_attacks(&self, color: Color) -> BitBoard {
-        self.attack_map(color).all
-    }
-
-    pub fn colored_pawn_attacks(&self, color: Color) -> BitBoard {
-        self.attack_map(color).pawn
-    }
-
     pub fn piece_at(&self, square: Square) -> Option<PieceIndex> {
         for color in Color::ALL {
             for piece in Piece::ALL {
@@ -689,10 +689,8 @@ impl Board {
         None
     }
 
-    fn attack_map(&self, color: Color) -> &AttackMap {
-        self.colored_attack_map[color].get_or_init(|| {
-            AttackMap::from_occupancy(&self.piece_occupancy, self.colored_occupancy[color])
-        })
+    pub fn piece_map(&self) -> &ArrayMap<PieceIndex, BitBoard> {
+        &self.piece_occupancy
     }
 
     pub fn pieces(&self) -> impl Iterator<Item = (Square, PieceIndex)> + '_ {
@@ -702,6 +700,29 @@ impl Board {
             } else {
                 None
             }
+        })
+    }
+
+    pub fn colored_occupancy(&self, color: Color) -> BitBoard {
+        self.colored_occupancy[color]
+    }
+
+    pub fn colored_attacks(&self, color: Color) -> BitBoard {
+        self.attack_map(color).all
+    }
+
+    pub fn colored_pawn_attacks(&self, color: Color) -> BitBoard {
+        self.attack_map(color).pawn
+    }
+
+    fn attack_map(&self, color: Color) -> &AttackMap {
+        self.colored_attack_map[color].get_or_init(|| {
+            AttackMap::from_occupancy(
+                color,
+                &self.piece_occupancy,
+                self.occupancy,
+                self.colored_occupancy[color],
+            )
         })
     }
 }
@@ -793,5 +814,20 @@ mod tests {
 
         let board = Board::from(&map);
         assert!(board.colored_occupancy[Color::White][Square::A1]);
+    }
+
+    #[test]
+    fn test_board_shifts() {
+        let square = Square::A4;
+        assert_eq!(square.offset(Offset::NORTH), Some(Square::A5));
+        assert_eq!(square.offset(Offset::SOUTH), Some(Square::A3));
+        assert_eq!(square.offset(Offset::EAST), Some(Square::B4));
+        assert_eq!(
+            square.offset(Offset::NORTH + Offset::EAST),
+            Some(Square::B5)
+        );
+
+        assert_eq!(square.offset(Offset::WEST), None);
+        assert_eq!(square.offset(Offset::NORTH + Offset::WEST), None);
     }
 }

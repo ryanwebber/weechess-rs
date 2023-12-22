@@ -119,10 +119,10 @@ impl TryFrom<&str> for Board {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut map = Board::empty_map();
-        let mut location_index: usize = 0;
+        let mut location_index: u8 = 0;
         for c in s.chars() {
             match c {
-                '1'..='8' => location_index += c.to_digit(10).unwrap() as usize,
+                '1'..='8' => location_index += c.to_digit(10).unwrap() as u8,
                 ' ' => break,
                 '/' => (),
                 _ => {
@@ -149,6 +149,12 @@ impl TryFrom<&str> for Board {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Fen<'a>(Cow<'a, str>);
+
+impl<'a> Fen<'a> {
+    pub fn new(s: &'a str) -> Self {
+        Self(Cow::Borrowed(s))
+    }
+}
 
 impl<'a, T> From<T> for Fen<'a>
 where

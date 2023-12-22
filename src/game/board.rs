@@ -1,15 +1,10 @@
 use std::{
     cell::OnceCell,
     fmt::Display,
-    ops::{Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref, DerefMut, Not},
+    ops::{Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, Not},
 };
 
-use bitvec::prelude::*;
-use bitvec::view::BitView;
-
 use super::{ArrayKey, ArrayMap, AttackGenerator, Color, Index, Piece, PieceIndex, FILE_MASKS};
-
-type BitSet = bitvec::BitArr!(for 64, in u64, Lsb0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
@@ -94,7 +89,7 @@ impl File {
 
 impl Display for File {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const FILES: &'static [u8] = "ABCDEFGH".as_bytes();
+        const FILES: &'static [u8] = "abcdefgh".as_bytes();
         if self.0 > 7 {
             write!(f, "?")
         } else {
@@ -421,14 +416,14 @@ impl From<u8> for Square {
     }
 }
 
-impl Into<usize> for Square {
-    fn into(self) -> usize {
-        self.0 as usize
+impl Into<u32> for Square {
+    fn into(self) -> u32 {
+        self.0 as u32
     }
 }
 
-impl From<usize> for Square {
-    fn from(value: usize) -> Self {
+impl From<u32> for Square {
+    fn from(value: u32) -> Self {
         Self(value as u8)
     }
 }
@@ -455,8 +450,7 @@ impl AttackMap {
         for piece in Piece::ALL {
             let piece_index = PieceIndex::new(color, *piece);
             let mut occupancy = piece_occupancy[piece_index];
-            while let Some(index) = occupancy.pop_lsb() {
-                let square = Square::from(index);
+            while let Some(square) = occupancy.pop() {
                 let attacks_this_piece = AttackGenerator::compute(
                     &AttackGenerator,
                     piece_index,
@@ -482,100 +476,99 @@ impl AttackMap {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub struct BitBoard(BitSet);
+pub struct BitBoard(u64);
 
 impl BitBoard {
-    pub const ZERO: Self = Self(BitSet::ZERO);
+    pub const ZERO: Self = Self(0);
+    pub const BIT_COUNT: u32 = u64::BITS;
 
-    pub fn set<I>(&mut self, index: I, value: bool)
-    where
-        I: Into<Index>,
-    {
-        let index: Index = index.into();
-        self.0.set(index.0, value);
-    }
-
-    pub fn pop_lsb(&mut self) -> Option<usize> {
-        let bit = self.0.first_one()?;
-        self.0.set(bit, false);
-        Some(bit)
-    }
-
-    pub fn shift(&self, offset: Offset) -> Self {
-        let mut result = *self;
-        if offset.rank > 0 {
-            result.shift_right((offset.rank * 8) as usize);
-        } else if offset.rank < 0 {
-            result.shift_left((offset.rank.abs() * 8) as usize);
-        }
-
-        // TODO: Optimize this
-        if offset.file > 0 {
-            for _ in 0..offset.file {
-                result &= !FILE_MASKS[File::H];
-                result.shift_right(1);
-            }
-        } else if offset.file < 0 {
-            for _ in 0..offset.file.abs() {
-                result &= !FILE_MASKS[File::A];
-                result.shift_left(1);
-            }
-        }
-
-        result
-    }
-}
-
-impl Deref for BitBoard {
-    type Target = BitSet;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for BitBoard {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<BitSet> for BitBoard {
-    fn from(value: BitSet) -> Self {
+    pub const fn new(value: u64) -> Self {
         Self(value)
     }
-}
 
-impl From<Square> for BitBoard {
-    fn from(value: Square) -> Self {
-        let mut b = Self::ZERO;
-        b.set(value, true);
-        b
+    pub const fn just(square: Square) -> Self {
+        Self(1u64 << square.0)
     }
-}
 
-impl From<u64> for BitBoard {
-    fn from(value: u64) -> Self {
-        let slice = value.view_bits::<Lsb0>();
-        Self(BitSet::try_from(slice).unwrap())
+    pub fn any(self) -> bool {
+        self.0 != 0
     }
-}
 
-impl Into<u64> for BitBoard {
-    fn into(self) -> u64 {
-        self.0.load::<u64>()
+    pub fn none(self) -> bool {
+        self.0 == 0
     }
-}
 
-impl<I> std::ops::Index<I> for BitBoard
-where
-    I: Into<Index>,
-{
-    type Output = bool;
+    pub fn first_one(self) -> Option<u32> {
+        let z = self.0.trailing_zeros();
+        if z == Self::BIT_COUNT {
+            None
+        } else {
+            Some(z)
+        }
+    }
 
-    fn index(&self, index: I) -> &Self::Output {
-        let index: Index = index.into();
-        &self.0[index.0]
+    pub fn last_one(self) -> Option<u32> {
+        let z = self.0.leading_zeros();
+        if z == Self::BIT_COUNT {
+            None
+        } else {
+            Some(Self::BIT_COUNT - z - 1)
+        }
+    }
+
+    pub fn iter_ones(self) -> impl Iterator<Item = u32> {
+        BitIterator(self)
+    }
+
+    pub fn set(&mut self, square: Square, value: bool) {
+        self.set_raw(square.into(), value);
+    }
+
+    pub fn set_raw(&mut self, bit: u32, value: bool) {
+        if value {
+            self.0 |= 1u64 << bit;
+        } else {
+            self.0 &= !(1u64 << bit);
+        }
+    }
+
+    pub fn test(self, square: Square) -> bool {
+        let bit: u32 = square.into();
+        self.test_raw(bit)
+    }
+
+    pub fn test_raw(self, bit: u32) -> bool {
+        (self.0 & (1u64 << bit)) != 0
+    }
+
+    pub fn pop(&mut self) -> Option<Square> {
+        let Some(bit) = self.first_one() else {
+            return None;
+        };
+
+        self.set_raw(bit, false);
+        Some(Square::from(bit as u8))
+    }
+
+    pub fn shift(self, offset: Offset) -> Self {
+        let mut bb = self;
+        if offset.rank > 0 {
+            bb = BitBoard(bb.0 << offset.rank * 8);
+        } else if offset.rank < 0 {
+            bb = BitBoard(bb.0 >> -offset.rank * 8);
+        }
+
+        if offset.file > 0 {
+            for _ in 0..offset.file {
+                bb = BitBoard((bb & !FILE_MASKS[File::H]).0 << 1);
+            }
+        } else if offset.file < 0 {
+            for _ in 0..-offset.file {
+                bb = BitBoard((bb & !FILE_MASKS[File::A]).0 >> 1);
+            }
+        }
+
+        bb
     }
 }
 
@@ -615,13 +608,40 @@ impl BitAndAssign for BitBoard {
     }
 }
 
+impl Into<u64> for BitBoard {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for BitBoard {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+pub struct BitIterator(BitBoard);
+
+impl Iterator for BitIterator {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(place) = self.0.first_one() else {
+            return None;
+        };
+
+        self.0 .0 &= !(1u64 << place);
+        Some(place)
+    }
+}
+
 impl std::fmt::Debug for BitBoard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f)?;
         for rank in Rank::ALL.iter().rev() {
             for file in File::ALL.iter() {
                 let square = Square::from((*rank, *file));
-                write!(f, "{}", if self[square] { '1' } else { '.' })?;
+                write!(f, "{}", if self.test(square) { '1' } else { '.' })?;
             }
 
             writeln!(f)?;
@@ -680,7 +700,7 @@ impl Board {
         for color in Color::ALL {
             for piece in Piece::ALL {
                 let piece_index = PieceIndex::new(*color, *piece);
-                if self.piece_occupancy[piece_index][square] {
+                if self.piece_occupancy[piece_index].test(square) {
                     return Some(piece_index);
                 }
             }
@@ -770,31 +790,38 @@ mod tests {
     fn test_file_indexes() {
         assert_eq!(File::A, File(0));
         assert_eq!(File::B, File(1));
-        assert_eq!(File::C.to_string(), "C");
+        assert_eq!(File::C.to_string(), "c");
     }
 
     #[test]
     fn test_square_indexes() {
         assert_eq!(Square::A1, Square(0));
         assert_eq!(Square::B1, Square(1));
-        assert_eq!(Square::C5.to_string(), "C5");
+        assert_eq!(Square::C5.to_string(), "c5");
     }
 
     #[test]
-    fn test_bitboard_pop_lsb() {
+    fn test_bitboard_pop() {
         let mut board = BitBoard::ZERO;
-        board.set(0, true);
-        board.set(12, true);
-        board.set(13, true);
-        board.set(31, true);
+        board.set(Square::from(0 as u8), true);
+        board.set(Square::from(12 as u8), true);
+        board.set(Square::from(13 as u8), true);
+        board.set(Square::from(31 as u8), true);
         board.set(Square::C7, true);
 
-        assert_eq!(board.pop_lsb(), Some(0));
-        assert_eq!(board.pop_lsb(), Some(12));
-        assert_eq!(board.pop_lsb(), Some(13));
-        assert_eq!(board.pop_lsb(), Some(31));
-        assert_eq!(board.pop_lsb(), Some(Square::C7.into()));
-        assert_eq!(board.pop_lsb(), None);
+        assert_eq!(board.pop(), Some(Square::from(0 as u8)));
+        assert_eq!(board.pop(), Some(Square::from(12 as u8)));
+        assert_eq!(board.pop(), Some(Square::from(13 as u8)));
+        assert_eq!(board.pop(), Some(Square::from(31 as u8)));
+        assert_eq!(board.pop(), Some(Square::C7.into()));
+        assert_eq!(board.pop(), None);
+    }
+
+    #[test]
+    fn test_bitboard_ones() {
+        let bb = BitBoard::new(0b00100010);
+        assert_eq!(bb.first_one(), Some(1));
+        assert_eq!(bb.last_one(), Some(5));
     }
 
     #[test]
@@ -813,7 +840,7 @@ mod tests {
         map[Square::C7] = (Color::Black, Piece::Bishop).into();
 
         let board = Board::from(&map);
-        assert!(board.colored_occupancy[Color::White][Square::A1]);
+        assert!(board.colored_occupancy[Color::White].test(Square::A1));
     }
 
     #[test]

@@ -2,8 +2,8 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use weechess::{
     fen::Fen,
-    game::{self, MoveGenerationBuffer, MoveResult},
-    printer,
+    game::{self},
+    printer, searcher,
 };
 
 #[derive(Parser)]
@@ -39,29 +39,6 @@ enum Commands {
     },
 }
 
-fn perft(state: &game::State, buffers: &mut [game::MoveGenerationBuffer], count: &mut usize) {
-    let generator = game::MoveGenerator;
-    if let Some((buffer, remaining_buffers)) = buffers.split_first_mut() {
-        generator.compute_legal_moves_into(&state, buffer);
-
-        // Quick perf optimization to avoid a function call.
-        if remaining_buffers.is_empty() {
-            *count += buffer.legal_moves.len();
-            return;
-        }
-
-        for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
-            let mut c0 = 0;
-            perft(new_state, remaining_buffers, &mut c0);
-            if remaining_buffers.len() == 4 {
-                println!("{}: {} ({})", mv.peg_notation(), c0, Fen::from(new_state));
-            }
-
-            *count += c0;
-        }
-    };
-}
-
 fn run() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
@@ -88,15 +65,14 @@ fn run() -> Result<(), anyhow::Error> {
                 }
             };
 
-            let mut buffers: Vec<MoveGenerationBuffer> =
-                std::iter::repeat_with(MoveGenerationBuffer::new)
-                    .take(depth)
-                    .collect();
+            let searcher = searcher::Searcher::new();
+            let count = searcher.perft(&game_state, depth, |gs, mv, depth, count| {
+                if depth == 1 {
+                    println!("{}: {} [{}]", mv.peg_notation(), count, Fen::from(gs));
+                }
+            });
 
-            let mut count = 0;
-            perft(&game_state, &mut buffers[..], &mut count);
-
-            println!("{} nodes", count);
+            println!("\nTotal nodes: {}", count);
 
             Ok(())
         }

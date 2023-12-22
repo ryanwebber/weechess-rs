@@ -1,4 +1,5 @@
 #![feature(generic_const_exprs)]
+#![feature(test)]
 
 pub mod engine;
 pub mod evaluator;

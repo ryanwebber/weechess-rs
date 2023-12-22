@@ -201,17 +201,21 @@ impl State {
                 castle_rights[state.turn_to_move] = CastleRights::NONE;
             }
 
-            castle_rights[Color::Black].kingside &=
-                board.piece_occupancy(PieceIndex::new(Color::Black, Piece::Rook))[Square::H8];
+            castle_rights[Color::Black].kingside &= board
+                .piece_occupancy(PieceIndex::new(Color::Black, Piece::Rook))
+                .test(Square::H8);
 
-            castle_rights[Color::Black].queenside &=
-                board.piece_occupancy(PieceIndex::new(Color::Black, Piece::Rook))[Square::A8];
+            castle_rights[Color::Black].queenside &= board
+                .piece_occupancy(PieceIndex::new(Color::Black, Piece::Rook))
+                .test(Square::A8);
 
-            castle_rights[Color::White].kingside &=
-                board.piece_occupancy(PieceIndex::new(Color::White, Piece::Rook))[Square::H1];
+            castle_rights[Color::White].kingside &= board
+                .piece_occupancy(PieceIndex::new(Color::White, Piece::Rook))
+                .test(Square::H1);
 
-            castle_rights[Color::White].queenside &=
-                board.piece_occupancy(PieceIndex::new(Color::White, Piece::Rook))[Square::A1];
+            castle_rights[Color::White].queenside &= board
+                .piece_occupancy(PieceIndex::new(Color::White, Piece::Rook))
+                .test(Square::A1);
 
             castle_rights
         };

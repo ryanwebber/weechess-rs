@@ -60,7 +60,7 @@ impl MoveGenerator {
                 .board()
                 .colored_attacks(next_state.turn_to_move());
 
-            if (king_position & attacked_positions).not_any() {
+            if (king_position & attacked_positions).none() {
                 buffer.legal_moves.push(MoveResult(*m, next_state));
             }
         }
@@ -151,15 +151,16 @@ impl MoveGenerator {
 
                 let attacks = pawns
                     .shift(helper.turn_to_move().forward())
-                    .shift(*file_offset)
-                    & helper.opposing_pieces();
+                    .shift(*file_offset);
 
-                let attacks_with_promotion = attacks & helper.own_backrank_mask();
-                let attacks_without_promotion = attacks & !helper.own_backrank_mask();
+                let attacks_with_promotion =
+                    attacks & helper.own_backrank_mask() & helper.opposing_pieces();
+                let attacks_without_promotion =
+                    attacks & !helper.own_backrank_mask() & helper.opposing_pieces();
                 let attacks_with_en_passant = attacks
                     & helper
                         .en_passant_target()
-                        .map(|s| BitBoard::from(s))
+                        .map(|s| BitBoard::just(s))
                         .unwrap_or(BitBoard::ZERO);
 
                 // Non-promotion captures
@@ -227,7 +228,7 @@ impl MoveGenerator {
             if helper.own_castle_rights().for_side(*side) {
                 let path_blocks = helper.board().occupancy() & CASTLE_PATH_MASKS[*side][color];
                 let path_checks = helper.opposing_attacks() & CASTLE_CHECK_MASKS[*side][color];
-                if path_blocks.not_any() && path_checks.not_any() {
+                if path_blocks.none() && path_checks.none() {
                     result.push(Move::by_castling(color, *side));
                 }
             }
@@ -349,4 +350,6 @@ impl Deref for GameStateHelper<'_> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    //
+}

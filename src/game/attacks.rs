@@ -342,7 +342,7 @@ mod data {
             .enumerate()
             .fold(BitBoard::ZERO, |mut acc, (i, bit)| {
                 if (index & (1 << i)) != 0 {
-                    acc.set(bit, true);
+                    acc.set_raw(bit, true);
                 }
 
                 acc

@@ -1,12 +1,13 @@
 use std::ops::Deref;
 
-use crate::{game::Offset, printer::GamePrinter};
+use crate::game::Offset;
 
 use super::{
     AttackGenerator, BitBoard, CastleRights, Color, Move, MoveResult, MoveSet, Piece, PieceIndex,
     Rank, Side, Square, State, CASTLE_CHECK_MASKS, CASTLE_PATH_MASKS, RANK_MASKS,
 };
 
+#[derive(Debug, Clone)]
 pub struct MoveGenerationBuffer {
     pub legal_moves: Vec<MoveResult>,
     pub psuedo_legal_moves: Vec<Move>,
@@ -64,17 +65,6 @@ impl MoveGenerator {
                 buffer.legal_moves.push(MoveResult(*m, next_state));
             }
         }
-
-        return;
-
-        println!("{}", GamePrinter::new(state));
-        println!("  Moves ({}):", moves.len());
-
-        for (i, m) in buffer.legal_moves.iter().enumerate() {
-            println!("    [{}]: {}", i, m.0.peg_notation());
-        }
-
-        println!();
     }
 
     fn compute_psuedo_legal_moves(&self, state: &State, result: &mut Vec<Move>) {

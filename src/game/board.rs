@@ -482,22 +482,27 @@ impl BitBoard {
     pub const ZERO: Self = Self(0);
     pub const BIT_COUNT: u32 = u64::BITS;
 
+    #[inline]
     pub const fn new(value: u64) -> Self {
         Self(value)
     }
 
+    #[inline]
     pub const fn just(square: Square) -> Self {
         Self(1u64 << square.0)
     }
 
+    #[inline]
     pub fn any(self) -> bool {
         self.0 != 0
     }
 
+    #[inline]
     pub fn none(self) -> bool {
         self.0 == 0
     }
 
+    #[inline]
     pub fn first_one(self) -> Option<u32> {
         let z = self.0.trailing_zeros();
         if z == Self::BIT_COUNT {
@@ -507,6 +512,7 @@ impl BitBoard {
         }
     }
 
+    #[inline]
     pub fn last_one(self) -> Option<u32> {
         let z = self.0.leading_zeros();
         if z == Self::BIT_COUNT {
@@ -516,14 +522,17 @@ impl BitBoard {
         }
     }
 
+    #[inline]
     pub fn iter_ones(self) -> impl Iterator<Item = u32> {
         BitIterator(self)
     }
 
+    #[inline]
     pub fn set(&mut self, square: Square, value: bool) {
         self.set_raw(square.into(), value);
     }
 
+    #[inline]
     pub fn set_raw(&mut self, bit: u32, value: bool) {
         if value {
             self.0 |= 1u64 << bit;
@@ -532,15 +541,18 @@ impl BitBoard {
         }
     }
 
+    #[inline]
     pub fn test(self, square: Square) -> bool {
         let bit: u32 = square.into();
         self.test_raw(bit)
     }
 
+    #[inline]
     pub fn test_raw(self, bit: u32) -> bool {
         (self.0 & (1u64 << bit)) != 0
     }
 
+    #[inline]
     pub fn pop(&mut self) -> Option<Square> {
         let Some(bit) = self.first_one() else {
             return None;
@@ -550,6 +562,7 @@ impl BitBoard {
         Some(Square::from(bit as u8))
     }
 
+    #[inline]
     pub fn shift(self, offset: Offset) -> Self {
         let mut bb = self;
         if offset.rank > 0 {

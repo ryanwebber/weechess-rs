@@ -1,6 +1,13 @@
+use std::{
+    io::stdin,
+    sync::mpsc::{self},
+    thread,
+};
+
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use weechess::{
+    evaluator,
     fen::Fen,
     game::{self},
     printer, searcher,
@@ -77,7 +84,7 @@ fn run() -> Result<(), anyhow::Error> {
             Ok(())
         }
         Some(Commands::Repl { fen }) => {
-            let game_state = {
+            let mut game_state = {
                 if let Some(fen) = &fen {
                     game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
                 } else {
@@ -93,10 +100,62 @@ fn run() -> Result<(), anyhow::Error> {
                 };
 
                 match repl.command {
+                    Some(repl::Commands::Evaluate) => {
+                        let evaluated_game_state = game_state.clone();
+                        let (tx, rx) = mpsc::channel();
+                        let outer_handle = thread::spawn(move || {
+                            println!("Evaluating positions (press enter to stop)...\n");
+
+                            let rx = rx;
+                            let searcher = searcher::Searcher::new();
+                            let evaluator = evaluator::Evaluator::new();
+                            let (search_handle, send, recv) =
+                                searcher.analyze(evaluated_game_state, evaluator);
+
+                            let print_handle = thread::spawn(move || loop {
+                                match recv.recv() {
+                                    Ok(searcher::StatusEvent::BestMove { r#move, evaluation }) => {
+                                        println!(
+                                            "[best move] {}: {}",
+                                            r#move.peg_notation(),
+                                            evaluation
+                                        );
+                                    }
+                                    Ok(searcher::StatusEvent::Progress { depth }) => {
+                                        println!("[progress] depth: {}", depth);
+                                    }
+                                    Err(..) => {
+                                        break;
+                                    }
+                                }
+                            });
+
+                            _ = rx.recv().unwrap();
+                            send.send(searcher::ControlEvent::Stop).unwrap();
+                            search_handle.join().unwrap();
+                            print_handle.join().unwrap();
+                        });
+
+                        stdin().read_line(&mut String::new())?;
+                        tx.send(()).unwrap();
+                        outer_handle.join().unwrap();
+                    }
+                    Some(repl::Commands::Load { fen }) => {
+                        let f = Fen::from(fen);
+                        match game::State::try_from(f) {
+                            Ok(gs) => {
+                                game_state = gs;
+                                println!("{}", printer::GamePrinter::new(&game_state));
+                            }
+                            Err(e) => {
+                                eprintln!("[error] {:#}", e);
+                            }
+                        }
+                    }
+                    Some(repl::Commands::Quit) => break,
                     Some(repl::Commands::State) => {
                         println!("{}", printer::GamePrinter::new(&game_state));
                     }
-                    Some(repl::Commands::Exit) => break,
                     None => {}
                 }
             }
@@ -115,6 +174,7 @@ fn main() {
 }
 
 mod repl {
+
     use clap::{Parser, Subcommand};
 
     #[derive(Parser)]
@@ -127,12 +187,25 @@ mod repl {
 
     #[derive(Subcommand)]
     pub enum Commands {
-        /// Print out the current state of the board
-        #[command(aliases = ["s"])]
-        State,
+        /// Evaluate the current position
+        #[command(visible_aliases = ["e"])]
+        Evaluate,
+
+        /// Load a new game state from a FEN string
+        #[command(visible_aliases = ["l"])]
+        Load {
+            /// starting position in FEN notation
+            #[arg(short, long)]
+            fen: String,
+        },
 
         /// Exit the REPL
-        Exit,
+        #[command(visible_aliases = ["q"])]
+        Quit,
+
+        /// Print out the current state of the board
+        #[command(visible_aliases = ["s"])]
+        State,
     }
 }
 

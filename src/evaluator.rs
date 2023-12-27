@@ -1,19 +1,19 @@
-use std::ops::Neg;
+use std::{fmt::Display, ops::Neg};
 
 use crate::game::{self};
 
-pub type EvaluationFunction = dyn Fn(&game::State) -> f32;
+pub type EvaluationFunction = fn(&game::State) -> i32;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Evaluation(f32);
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Evaluation(i32);
 
-impl From<f32> for Evaluation {
-    fn from(value: f32) -> Self {
+impl From<i32> for Evaluation {
+    fn from(value: i32) -> Self {
         Evaluation(value)
     }
 }
 
-impl From<Evaluation> for f32 {
+impl From<Evaluation> for i32 {
     fn from(value: Evaluation) -> Self {
         value.0
     }
@@ -28,12 +28,28 @@ impl Neg for Evaluation {
 }
 
 impl Evaluation {
-    pub const EVEN: Evaluation = Evaluation(0.0);
-    pub const CHECKMATE: Evaluation = Evaluation(100.0);
+    pub const EVEN: Evaluation = Evaluation(0);
+    pub const STALEMATE: Evaluation = Evaluation(0);
+    pub const CHECKMATE: Evaluation = Evaluation(100);
+    pub const NEG_INF: Evaluation = Evaluation(i32::MAX);
+    pub const POS_INF: Evaluation = Evaluation(i32::MIN);
+}
+
+impl Display for Evaluation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = self.0;
+        if value == i32::MAX {
+            write!(f, "Losing")
+        } else if value == i32::MIN {
+            write!(f, "Winning")
+        } else {
+            write!(f, "{}", value)
+        }
+    }
 }
 
 pub struct Evaluator {
-    fns: Vec<Box<EvaluationFunction>>,
+    fns: Vec<EvaluationFunction>,
 }
 
 impl Evaluator {
@@ -41,31 +57,14 @@ impl Evaluator {
         Evaluator { fns: Vec::new() }
     }
 
-    pub fn evaluate(&self, state: game::State) -> Evaluation {
+    pub fn estimate(&self, _state: &game::State) -> Evaluation {
+        // TODO
+        Evaluation::EVEN
+    }
+
+    pub fn evaluate(&self, state: &game::State) -> Evaluation {
         let value = self.fns.iter().map(|f| f(&state)).sum();
         Evaluation(value)
-    }
-}
-
-pub struct Builder {
-    fns: Vec<Box<EvaluationFunction>>,
-}
-
-impl Builder {
-    pub fn new() -> Self {
-        Builder { fns: Vec::new() }
-    }
-
-    pub fn with<F>(mut self, f: F) -> Self
-    where
-        F: Fn(&game::State) -> f32 + 'static,
-    {
-        self.fns.push(Box::new(f));
-        self
-    }
-
-    pub fn build(self) -> Evaluator {
-        Evaluator { fns: self.fns }
     }
 }
 
@@ -77,6 +76,6 @@ mod tests {
     fn test_empty() {
         let evaluator = Evaluator::new();
         let game_state = game::State::default();
-        assert_eq!(evaluator.evaluate(game_state), Evaluation::EVEN);
+        assert_eq!(evaluator.evaluate(&game_state), Evaluation::EVEN);
     }
 }

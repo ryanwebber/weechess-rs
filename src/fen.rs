@@ -154,6 +154,10 @@ impl<'a> Fen<'a> {
     pub fn new(s: &'a str) -> Self {
         Self(Cow::Borrowed(s))
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl<'a, T> From<T> for Fen<'a>

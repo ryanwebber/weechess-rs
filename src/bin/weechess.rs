@@ -28,6 +28,16 @@ enum Commands {
         #[arg(short, long)]
         fen: Option<String>,
     },
+    /// Evaluate a position
+    Evaluate {
+        /// starting position in FEN notation
+        #[arg(short, long)]
+        fen: Option<String>,
+
+        /// maximum depth to search to
+        #[arg(short, long)]
+        max_depth: Option<usize>,
+    },
     /// walk the move generation tree of strictly legal moves to count all the leaf nodes of a certain depth
     Perft {
         /// starting position in FEN notation
@@ -60,6 +70,43 @@ fn run() -> Result<(), anyhow::Error> {
             };
 
             println!("{}", printer::GamePrinter::new(&game_state));
+
+            Ok(())
+        }
+        Some(Commands::Evaluate { fen, max_depth }) => {
+            let game_state = {
+                if let Some(fen) = &fen {
+                    game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
+                } else {
+                    game::State::default()
+                }
+            };
+
+            let outer_handle = thread::spawn(move || {
+                let searcher = searcher::Searcher::new();
+                let evaluator = evaluator::Evaluator::new();
+                let (search_handle, send, recv) =
+                    searcher.analyze(game_state, evaluator, max_depth);
+
+                let print_handle = thread::spawn(move || loop {
+                    match recv.recv() {
+                        Ok(e) => {
+                            common::print_search_event(e);
+                        }
+                        Err(..) => {
+                            break;
+                        }
+                    }
+                });
+
+                // Hold onto the sender so that the searcher doesn't get dropped
+                _ = send;
+
+                search_handle.join().unwrap();
+                print_handle.join().unwrap();
+            });
+
+            outer_handle.join().unwrap();
 
             Ok(())
         }
@@ -100,38 +147,34 @@ fn run() -> Result<(), anyhow::Error> {
                 };
 
                 match repl.command {
-                    Some(repl::Commands::Evaluate) => {
+                    Some(repl::Commands::Evaluate { max_depth }) => {
                         let evaluated_game_state = game_state.clone();
                         let (tx, rx) = mpsc::channel();
                         let outer_handle = thread::spawn(move || {
                             println!("Evaluating positions (press enter to stop)...\n");
-
                             let rx = rx;
                             let searcher = searcher::Searcher::new();
                             let evaluator = evaluator::Evaluator::new();
                             let (search_handle, send, recv) =
-                                searcher.analyze(evaluated_game_state, evaluator);
+                                searcher.analyze(evaluated_game_state, evaluator, max_depth);
 
-                            let print_handle = thread::spawn(move || loop {
-                                match recv.recv() {
-                                    Ok(searcher::StatusEvent::BestMove { r#move, evaluation }) => {
-                                        println!(
-                                            "[best move] {}: {}",
-                                            r#move.peg_notation(),
-                                            evaluation
-                                        );
-                                    }
-                                    Ok(searcher::StatusEvent::Progress { depth }) => {
-                                        println!("[progress] depth: {}", depth);
-                                    }
-                                    Err(..) => {
-                                        break;
+                            let print_handle = thread::spawn(move || {
+                                loop {
+                                    match recv.recv() {
+                                        Ok(e) => {
+                                            common::print_search_event(e);
+                                        }
+                                        Err(..) => {
+                                            break;
+                                        }
                                     }
                                 }
+
+                                println!("\nEvaluation complete!");
                             });
 
                             _ = rx.recv().unwrap();
-                            send.send(searcher::ControlEvent::Stop).unwrap();
+                            _ = send.send(searcher::ControlEvent::Stop);
                             search_handle.join().unwrap();
                             print_handle.join().unwrap();
                         });
@@ -173,6 +216,35 @@ fn main() {
     }
 }
 
+mod common {
+    use colored::Colorize;
+    use weechess::searcher;
+
+    pub fn print_search_event(event: searcher::StatusEvent) {
+        match event {
+            searcher::StatusEvent::BestMove { r#move, evaluation } => {
+                println!(
+                    "{} {} {}: {}",
+                    "Best Move".bright_green(),
+                    "|".dimmed(),
+                    r#move.peg_notation(),
+                    evaluation
+                );
+            }
+            searcher::StatusEvent::Progress {
+                depth,
+                transposition_saturation,
+            } => {
+                let f = format!(
+                    "depth={} transposition_saturation={}",
+                    depth, transposition_saturation
+                );
+                println!("{}  {} {}", "Progress".dimmed(), "|".dimmed(), f.dimmed());
+            }
+        }
+    }
+}
+
 mod repl {
 
     use clap::{Parser, Subcommand};
@@ -189,7 +261,11 @@ mod repl {
     pub enum Commands {
         /// Evaluate the current position
         #[command(visible_aliases = ["e"])]
-        Evaluate,
+        Evaluate {
+            /// maximum depth to search to
+            #[arg(short, long)]
+            max_depth: Option<usize>,
+        },
 
         /// Load a new game state from a FEN string
         #[command(visible_aliases = ["l"])]

@@ -15,6 +15,7 @@ path = "src/bin/weechess.rs"
 anyhow = "1.0.75"
 bitvec = "1.0.1"
 clap = { version = "4.4.11", features = ["derive"] }
+colored = "2.1.0"
 console = "0.15.7"
 indoc = "2.0.4"
 lazy_static = "1.4.0"

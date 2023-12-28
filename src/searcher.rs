@@ -20,6 +20,7 @@ pub enum StatusEvent {
     },
     Progress {
         depth: u32,
+        transposition_saturation: f32,
     },
 }
 
@@ -38,6 +39,7 @@ impl Searcher {
         &self,
         state: game::State,
         evaluator: evaluator::Evaluator,
+        max_depth: Option<usize>,
     ) -> (
         thread::JoinHandle<()>,
         mpsc::Sender<ControlEvent>,
@@ -45,16 +47,21 @@ impl Searcher {
     ) {
         let (tx1, rx1) = mpsc::channel();
         let (tx2, rx2) = mpsc::channel();
+
+        let tx3 = tx2.clone();
         let control_handle = thread::spawn(move || {
             let sink = tx1;
             let controller = rx2;
 
             let (signal_token, listen_token) = CancellationToken::new();
             let search_handle = thread::spawn(move || {
-                Self::analyze_iterative(state, &evaluator, None, listen_token, &mut |event| {
+                Self::analyze_iterative(state, &evaluator, max_depth, listen_token, &mut |event| {
                     // This can error if the receiver drops their end. That's ok
                     _ = sink.send(event);
                 });
+
+                // We actually finished search, send a stop event to the controller
+                tx3.send(ControlEvent::Stop).unwrap();
             });
 
             loop {
@@ -87,24 +94,40 @@ impl Searcher {
         let mut transpositions = TranspositionTable::with_memory(1024 * 1024 * 256);
         let mut move_buffer = MoveGenerationBuffer::new();
 
+        let mut best_eval = evaluator::Evaluation::NEG_INF;
+
         for depth in 0..max_depth {
             match Self::analyze_recursive(
                 &game_state,
                 evaluator,
                 &mut transpositions,
-                depth,
+                depth + 1,
                 0,
                 evaluator::Evaluation::NEG_INF,
                 evaluator::Evaluation::POS_INF,
                 &token,
                 &mut move_buffer,
             ) {
-                Ok(_) => {
+                Ok(e) => {
                     f(StatusEvent::Progress {
                         depth: depth as u32,
+                        transposition_saturation: transpositions.saturation(),
                     });
+
+                    if e > best_eval {
+                        best_eval = e;
+                        f(StatusEvent::BestMove {
+                            r#move: transpositions.find(&game_state).unwrap().performed_move,
+                            evaluation: e,
+                        });
+                    }
                 }
                 Err(SearchInterrupt) => break,
+            }
+
+            // If we've reached a terminal position, we can stop searching
+            if best_eval.is_terminal() {
+                break;
             }
         }
     }
@@ -159,7 +182,7 @@ impl Searcher {
         // here. In reality, we're probably about to lose our queen for that pawn, so
         // we need to exaust all captures in the current position before we evaluate it
         if current_depth >= max_depth {
-            return Self::quiescence_search(game_state, alpha, beta);
+            return Self::quiescence_search(game_state, evaluator, alpha, beta);
         }
 
         let move_generator = game::MoveGenerator;
@@ -167,6 +190,11 @@ impl Searcher {
         let mut best_move: Option<game::Move> = None;
 
         move_generator.compute_legal_moves_into(game_state, buffer);
+
+        // Don't bother searching further, this is checkmate or stalemate
+        if buffer.legal_moves.is_empty() {
+            return Ok(evaluator.evaluate(game_state));
+        }
 
         // Sort the moves by the estimated value of the resulting position
         // so that we can search the most promising moves first - this will
@@ -178,17 +206,12 @@ impl Searcher {
                 evaluator.estimate(new_state)
             });
 
-        if buffer.legal_moves.is_empty() {
-            // Don't bother searching further, this is checkmate or stalemate
-            return Ok(evaluator.evaluate(game_state));
-        }
-
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations
         let mut move_buffer = MoveGenerationBuffer::new();
 
         for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
             let evaluation = -Self::analyze_recursive(
-                &new_state,
+                new_state,
                 evaluator,
                 transpositions,
                 max_depth,
@@ -231,8 +254,8 @@ impl Searcher {
                     kind: evaluation_type,
                     performed_move: best_move,
                     depth: current_depth,
-                    max_depth,
                     evaluation: alpha,
+                    max_depth,
                 },
             );
         }
@@ -241,12 +264,12 @@ impl Searcher {
     }
 
     fn quiescence_search(
-        _game_state: &game::State,
+        game_state: &game::State,
+        evaluator: &evaluator::Evaluator,
         _alpha: evaluator::Evaluation,
         _beta: evaluator::Evaluation,
     ) -> Result<evaluator::Evaluation, SearchInterrupt> {
-        // TODO
-        Ok(evaluator::Evaluation::EVEN)
+        Ok(evaluator.evaluate(game_state))
     }
 
     pub fn perft<F>(&self, state: &game::State, depth: usize, mut f: F) -> usize
@@ -305,6 +328,7 @@ struct SearchInterrupt;
 struct TranspositionTable {
     hasher: hasher::ZobristHasher,
     entries: Vec<Option<TranspositionEntry>>,
+    used_slots: usize,
 }
 
 impl TranspositionTable {
@@ -312,6 +336,7 @@ impl TranspositionTable {
         Self {
             hasher: hasher::ZobristHasher::with_seed(0),
             entries: vec![None; size],
+            used_slots: 0,
         }
     }
 
@@ -343,11 +368,19 @@ impl TranspositionTable {
     fn insert(&mut self, state: &game::State, entry: TranspositionEntry) {
         let hash = self.hasher.hash(state);
         let index = hash as usize % self.entries.len();
+        if self.entries[index].is_none() {
+            self.used_slots += 1;
+        }
+
         self.entries[index] = Some(entry);
+    }
+
+    fn saturation(&self) -> f32 {
+        self.used_slots as f32 / self.entries.len() as f32
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct TranspositionEntry {
     kind: EvaluationKind,
     performed_move: game::Move,
@@ -414,14 +447,17 @@ impl CancellationToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{fen::Fen, game::State};
+    use crate::{
+        fen::Fen,
+        game::{Square, State},
+    };
 
     #[test]
     fn test_termination() {
         let searcher = Searcher::new();
         let evaluator = evaluator::Evaluator::new();
         let state = game::State::default();
-        let (handle, tx, _) = searcher.analyze(state, evaluator);
+        let (handle, tx, _) = searcher.analyze(state, evaluator, None);
         tx.send(ControlEvent::Stop).unwrap();
 
         handle.join().unwrap();
@@ -429,13 +465,38 @@ mod tests {
 
     #[test]
     fn test_move_gen_and_search() {
-        let gs = State::try_from(Fen::new(
-            "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
-        ))
-        .unwrap();
+        let gs =
+            State::from_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8").unwrap();
 
         let searcher = Searcher::new();
         let count = searcher.perft(&gs, 3, |_, _, _, _| {});
         assert_eq!(count, 62379);
+    }
+
+    #[test]
+    fn test_find_forced_mate_in_3() {
+        let searcher = Searcher::new();
+        let evaluator = evaluator::Evaluator::new();
+        let state =
+            game::State::from_fen("r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1")
+                .unwrap();
+
+        let (handle, _tx, rx) = searcher.analyze(state, evaluator, None);
+
+        let best_move = rx
+            .into_iter()
+            .filter_map(|ev| match ev {
+                StatusEvent::BestMove { r#move, evaluation } => Some((r#move, evaluation)),
+                _ => None,
+            })
+            .inspect(|i| println!("best_move={}", i.0.peg_notation()))
+            .last()
+            .unwrap();
+
+        handle.join().unwrap();
+
+        assert_eq!(best_move.0.origin(), Square::C4);
+        assert_eq!(best_move.0.destination(), Square::B5);
+        assert!(best_move.1 >= evaluator::Evaluation::mate_in(3));
     }
 }

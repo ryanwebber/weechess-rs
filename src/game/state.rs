@@ -123,6 +123,10 @@ impl State {
         }
     }
 
+    pub fn from_fen(fen: &str) -> Result<Self, fen::ParseError> {
+        fen::Fen::from(fen).try_into()
+    }
+
     pub fn board(&self) -> &Board {
         &self.board
     }
@@ -141,6 +145,10 @@ impl State {
 
     pub fn clock(&self) -> &Clock {
         &self.clock
+    }
+
+    pub fn is_check(&self) -> bool {
+        self.board.is_check(self.turn_to_move)
     }
 
     pub fn by_performing_move(state: &Self, mv: &Move) -> Result<State, MovePerformError> {

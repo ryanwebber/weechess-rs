@@ -736,6 +736,12 @@ impl Board {
         })
     }
 
+    pub fn is_check(&self, color: Color) -> bool {
+        let kings = self.piece_occupancy[PieceIndex::new(color, Piece::King)];
+        let attacks = self.colored_attacks(color.opposing_color());
+        (kings & attacks).any()
+    }
+
     pub fn colored_occupancy(&self, color: Color) -> BitBoard {
         self.colored_occupancy[color]
     }

@@ -447,10 +447,7 @@ impl CancellationToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        fen::Fen,
-        game::{Square, State},
-    };
+    use crate::game::{Square, State};
 
     #[test]
     fn test_termination() {

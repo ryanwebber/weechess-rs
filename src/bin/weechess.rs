@@ -10,7 +10,7 @@ use weechess::{
     evaluator,
     fen::Fen,
     game::{self},
-    printer, searcher,
+    printer, searcher, uci,
 };
 
 #[derive(Parser)]
@@ -24,36 +24,38 @@ struct Cli {
 enum Commands {
     /// Print out the board in a human-readable format
     Display {
-        /// starting position in FEN notation
+        /// Starting position in FEN notation
         #[arg(short, long)]
         fen: Option<String>,
     },
     /// Evaluate a position
     Evaluate {
-        /// starting position in FEN notation
+        /// Starting position in FEN notation
         #[arg(short, long)]
         fen: Option<String>,
 
-        /// maximum depth to search to
+        /// Maximum depth to search to
         #[arg(short, long)]
         max_depth: Option<usize>,
     },
-    /// walk the move generation tree of strictly legal moves to count all the leaf nodes of a certain depth
+    /// Walk the move generation tree of strictly legal moves to count all the leaf nodes of a certain depth
     Perft {
-        /// starting position in FEN notation
+        /// Starting position in FEN notation
         #[arg(short, long)]
         fen: Option<String>,
 
-        /// depth to count to
+        /// Depth to count to
         #[arg(short, long, default_value = "6")]
         depth: usize,
     },
-    /// start an interactive REPL session with the engine
+    /// Start an interactive REPL session with the engine
     Repl {
-        /// starting position in FEN notation
+        /// Starting position in FEN notation
         #[arg(short, long)]
         fen: Option<String>,
     },
+    /// Start a UCI client
+    Uci,
 }
 
 fn run() -> Result<(), anyhow::Error> {
@@ -205,6 +207,9 @@ fn run() -> Result<(), anyhow::Error> {
 
             Ok(())
         }
+        Some(Commands::Uci) => uci::UciClient::new()
+            .exec()
+            .context("while running UCI client"),
         None => Ok(()),
     }
 }
@@ -262,7 +267,7 @@ mod repl {
         /// Evaluate the current position
         #[command(visible_aliases = ["e"])]
         Evaluate {
-            /// maximum depth to search to
+            /// Maximum depth to search to
             #[arg(short, long)]
             max_depth: Option<usize>,
         },
@@ -270,7 +275,7 @@ mod repl {
         /// Load a new game state from a FEN string
         #[command(visible_aliases = ["l"])]
         Load {
-            /// starting position in FEN notation
+            /// Starting position in FEN notation
             #[arg(short, long)]
             fen: String,
         },

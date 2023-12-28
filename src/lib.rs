@@ -8,3 +8,4 @@ pub mod game;
 pub mod hasher;
 pub mod printer;
 pub mod searcher;
+pub mod uci;

@@ -4,6 +4,8 @@ use std::{
     thread,
 };
 
+use rand::Rng;
+
 use crate::{
     evaluator::Evaluator,
     game::{self, MoveQuery, Square},
@@ -29,6 +31,7 @@ impl Client {
         let mut input = stdin().lock().lines();
         let mut current_search: Option<Search> = None;
         let mut current_position: game::State = game::State::default();
+        let mut rng = rand::thread_rng();
         while let Some(Ok(cmd)) = input.next() {
             let parts: Vec<&str> = cmd.split_ascii_whitespace().collect();
             match parts.split_first() {
@@ -37,7 +40,7 @@ impl Client {
                         search.wait_cancel();
                     }
 
-                    let search = Search::spawn(current_position.clone(), None);
+                    let search = Search::spawn(current_position.clone(), rng.gen(), None);
                     current_search = Some(search);
                 }
                 Some((&"isready", _)) => {
@@ -171,11 +174,12 @@ struct Search {
 }
 
 impl Search {
-    pub fn spawn(state: game::State, depth: Option<usize>) -> Self {
+    pub fn spawn(state: game::State, rng_seed: u64, depth: Option<usize>) -> Self {
         let searcher = Searcher::new();
         let evaluator = Evaluator::new();
         let start_time = std::time::Instant::now();
-        let (search_handle, control, receiver) = searcher.analyze(state, evaluator, depth);
+        let (search_handle, control, receiver) =
+            searcher.analyze(state, rng_seed, evaluator, depth);
 
         {
             // Start a timer to stop the search after a certain amount of time

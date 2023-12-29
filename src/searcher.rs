@@ -6,11 +6,16 @@ use std::{
     thread,
 };
 
+use rand::{seq::SliceRandom, SeedableRng};
+use rand_chacha::ChaCha8Rng;
+
 use crate::{
     evaluator,
     game::{self, MoveGenerationBuffer, MoveResult},
     hasher,
 };
+
+type RandomNumberGenerator = ChaCha8Rng;
 
 #[derive(Debug)]
 pub enum StatusEvent {
@@ -32,12 +37,13 @@ pub struct Searcher;
 
 impl Searcher {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 
     pub fn analyze(
         &self,
         state: game::State,
+        rng_seed: u64,
         evaluator: evaluator::Evaluator,
         max_depth: Option<usize>,
     ) -> (
@@ -45,9 +51,9 @@ impl Searcher {
         mpsc::Sender<ControlEvent>,
         mpsc::Receiver<StatusEvent>,
     ) {
+        let rng = RandomNumberGenerator::seed_from_u64(rng_seed);
         let (tx1, rx1) = mpsc::channel();
         let (tx2, rx2) = mpsc::channel();
-
         let tx3 = tx2.clone();
         let control_handle = thread::spawn(move || {
             let sink = tx1;
@@ -55,10 +61,17 @@ impl Searcher {
 
             let (signal_token, listen_token) = CancellationToken::new();
             let search_handle = thread::spawn(move || {
-                Self::analyze_iterative(state, &evaluator, max_depth, listen_token, &mut |event| {
-                    // This can error if the receiver drops their end. That's ok
-                    _ = sink.send(event);
-                });
+                Self::analyze_iterative(
+                    state,
+                    &evaluator,
+                    rng,
+                    max_depth,
+                    listen_token,
+                    &mut |event| {
+                        // This can error if the receiver drops their end. That's ok
+                        _ = sink.send(event);
+                    },
+                );
 
                 // We actually finished search, send a stop event to the controller
                 tx3.send(ControlEvent::Stop).unwrap();
@@ -84,6 +97,7 @@ impl Searcher {
     fn analyze_iterative<F>(
         game_state: game::State,
         evaluator: &evaluator::Evaluator,
+        rng: RandomNumberGenerator,
         max_depth: Option<usize>,
         token: CancellationToken,
         f: &mut F,
@@ -91,6 +105,7 @@ impl Searcher {
         F: FnMut(StatusEvent),
     {
         let max_depth = max_depth.unwrap_or(usize::MAX);
+        let mut rng = rng;
         let mut transpositions = TranspositionTable::with_memory(1024 * 1024 * 256);
         let mut move_buffer = MoveGenerationBuffer::new();
 
@@ -100,6 +115,7 @@ impl Searcher {
             match Self::analyze_recursive(
                 &game_state,
                 evaluator,
+                &mut rng,
                 &mut transpositions,
                 depth + 1,
                 0,
@@ -144,6 +160,7 @@ impl Searcher {
     fn analyze_recursive(
         game_state: &game::State,
         evaluator: &evaluator::Evaluator,
+        rng: &mut ChaCha8Rng,
         transpositions: &mut TranspositionTable,
         max_depth: usize,
         current_depth: usize,
@@ -205,6 +222,9 @@ impl Searcher {
             return Ok(evaluator.evaluate(game_state));
         }
 
+        // Shuffle the moves so we don't always search the same moves first
+        buffer.legal_moves.shuffle(rng);
+
         // Sort the moves by the estimated value of the resulting position
         // so that we can search the most promising moves first - this will
         // allow us to prune more branches early in alpha-beta search
@@ -222,6 +242,7 @@ impl Searcher {
             let evaluation = -Self::analyze_recursive(
                 new_state,
                 evaluator,
+                rng,
                 transpositions,
                 max_depth,
                 current_depth + 1,
@@ -466,7 +487,7 @@ mod tests {
         let searcher = Searcher::new();
         let evaluator = evaluator::Evaluator::new();
         let state = game::State::default();
-        let (handle, tx, _) = searcher.analyze(state, evaluator, None);
+        let (handle, tx, _) = searcher.analyze(state, 0, evaluator, None);
         tx.send(ControlEvent::Stop).unwrap();
 
         handle.join().unwrap();
@@ -493,7 +514,7 @@ mod tests {
         )
         .unwrap();
 
-        let (handle, _tx, rx) = searcher.analyze(state, evaluator, None);
+        let (handle, _tx, rx) = searcher.analyze(state, 0, evaluator, None);
 
         let best_move = rx
             .into_iter()

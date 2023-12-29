@@ -38,6 +38,10 @@ enum Commands {
         /// Maximum depth to search to
         #[arg(short, long)]
         max_depth: Option<usize>,
+
+        /// Random number seed to use
+        #[arg(long)]
+        seed: Option<u64>,
     },
     /// Walk the move generation tree of strictly legal moves to count all the leaf nodes of a certain depth
     Perft {
@@ -76,7 +80,11 @@ fn run() -> Result<(), anyhow::Error> {
 
             Ok(())
         }
-        Some(Commands::Evaluate { fen, max_depth }) => {
+        Some(Commands::Evaluate {
+            fen,
+            max_depth,
+            seed,
+        }) => {
             let game_state = {
                 if let Some(fen) = &fen {
                     try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
@@ -85,11 +93,13 @@ fn run() -> Result<(), anyhow::Error> {
                 }
             };
 
+            let rng_seed = seed.unwrap_or_else(rand::random);
+
             let outer_handle = thread::spawn(move || {
                 let searcher = searcher::Searcher::new();
                 let evaluator = evaluator::Evaluator::new();
                 let (search_handle, send, recv) =
-                    searcher.analyze(game_state, evaluator, max_depth);
+                    searcher.analyze(game_state, rng_seed, evaluator, max_depth);
 
                 let print_handle = thread::spawn(move || loop {
                     match recv.recv() {
@@ -155,7 +165,7 @@ fn run() -> Result<(), anyhow::Error> {
                 };
 
                 match repl.command {
-                    Some(repl::Commands::Evaluate { max_depth }) => {
+                    Some(repl::Commands::Evaluate { max_depth, seed }) => {
                         let evaluated_game_state = game_state.clone();
                         let (tx, rx) = mpsc::channel();
                         let outer_handle = thread::spawn(move || {
@@ -163,8 +173,9 @@ fn run() -> Result<(), anyhow::Error> {
                             let rx = rx;
                             let searcher = searcher::Searcher::new();
                             let evaluator = evaluator::Evaluator::new();
+                            let rng_seed = seed.unwrap_or_else(rand::random);
                             let (search_handle, send, recv) =
-                                searcher.analyze(evaluated_game_state, evaluator, max_depth);
+                                searcher.analyze(evaluated_game_state, rng_seed, evaluator, max_depth);
 
                             let print_handle = thread::spawn(move || {
                                 loop {
@@ -283,6 +294,10 @@ mod repl {
             /// Maximum depth to search to
             #[arg(short, long)]
             max_depth: Option<usize>,
+
+            /// Random number seed to use
+            #[arg(long)]
+            seed: Option<u64>,
         },
 
         /// Load a new game state from a FEN string

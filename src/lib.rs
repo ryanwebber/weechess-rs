@@ -10,3 +10,4 @@ pub mod notation;
 pub mod printer;
 pub mod searcher;
 pub mod uci;
+pub mod version;

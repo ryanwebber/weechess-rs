@@ -12,11 +12,8 @@ use crate::{
     notation::{try_parse, Fen},
     printer::GamePrinter,
     searcher::{self, Searcher},
+    version::EngineVersion,
 };
-
-const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
-const PKG_AUTHOR: &str = env!("CARGO_PKG_AUTHORS");
-const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 const MAX_SEARCH_TIME: f64 = 4.0;
 
@@ -129,8 +126,8 @@ impl Client {
                     }
                 }
                 Some((&"uci", _)) => {
-                    println!("id name {}_v{}", PKG_NAME, PKG_VERSION);
-                    println!("id author {}", PKG_AUTHOR);
+                    println!("id name {}", EngineVersion::CURRENT);
+                    println!("id author {}", EngineVersion::CURRENT.author);
                     println!("uciok");
                 }
                 Some((&"ucinewgame", _)) => {
@@ -199,7 +196,7 @@ impl Search {
             while let Ok(event) = receiver.recv() {
                 match event {
                     searcher::StatusEvent::BestMove { line, evaluation } => {
-                        println!("info score cp {}", evaluation);
+                        println!("info score cp {}", evaluation.cp());
                         println!(
                             "info pv {}",
                             line.iter()

@@ -12,6 +12,7 @@ use weechess::{
     game::{self},
     notation::{as_notation, try_parse, Fen, Peg},
     printer, searcher, uci,
+    version::EngineVersion,
 };
 
 #[derive(Parser)]
@@ -61,6 +62,8 @@ enum Commands {
     },
     /// Start a UCI client
     Uci,
+    /// Print out the version of the engine
+    Version,
 }
 
 fn run() -> Result<(), anyhow::Error> {
@@ -174,8 +177,12 @@ fn run() -> Result<(), anyhow::Error> {
                             let searcher = searcher::Searcher::new();
                             let evaluator = evaluator::Evaluator::new();
                             let rng_seed = seed.unwrap_or_else(rand::random);
-                            let (search_handle, send, recv) =
-                                searcher.analyze(evaluated_game_state, rng_seed, evaluator, max_depth);
+                            let (search_handle, send, recv) = searcher.analyze(
+                                evaluated_game_state,
+                                rng_seed,
+                                evaluator,
+                                max_depth,
+                            );
 
                             let print_handle = thread::spawn(move || {
                                 loop {
@@ -224,6 +231,10 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Uci) => uci::Client::new()
             .exec()
             .context("while running UCI client"),
+        Some(Commands::Version) => {
+            println!("{}", EngineVersion::CURRENT);
+            Ok(())
+        }
         None => Ok(()),
     }
 }

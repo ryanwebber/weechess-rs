@@ -1,9 +1,19 @@
 use std::{
     fmt::Display,
-    ops::{Add, AddAssign, Neg},
+    ops::{Add, AddAssign, Mul, Neg},
 };
 
-use crate::game::{self};
+use crate::game::{self, ArrayMap, Color, Piece, PieceIndex};
+
+pub const PIECE_WORTHS: ArrayMap<Piece, i32> = ArrayMap::new([
+    0,   // None
+    1,   // Pawn
+    3,   // Knight
+    3,   // Bishop
+    5,   // Rook
+    9,   // Queen
+    100, // King
+]);
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Evaluation(i32);
@@ -42,12 +52,19 @@ impl Neg for Evaluation {
     }
 }
 
-impl Evaluation {
-    const ONE_PAWN: i32 = 100;
+impl Mul<i32> for Evaluation {
+    type Output = Self;
 
-    pub const NEG_INF: Evaluation = Evaluation(-100 * Self::ONE_PAWN);
-    pub const POS_INF: Evaluation = Evaluation(100 * Self::ONE_PAWN);
+    fn mul(self, rhs: i32) -> Self::Output {
+        Evaluation(self.0 * rhs)
+    }
+}
+
+impl Evaluation {
     pub const EVEN: Evaluation = Evaluation(0);
+    pub const ONE_PAWN: Evaluation = Evaluation(100);
+    pub const POS_INF: Evaluation = Evaluation(Self::ONE_PAWN.0 * 100);
+    pub const NEG_INF: Evaluation = Evaluation(Self::ONE_PAWN.0 * -100);
 
     pub fn mate_in(_ply: usize) -> Evaluation {
         Evaluation::POS_INF
@@ -55,6 +72,10 @@ impl Evaluation {
 
     pub fn is_terminal(self) -> bool {
         self <= Self::NEG_INF || self >= Self::POS_INF
+    }
+
+    pub fn cp(self) -> Centipawn {
+        Centipawn(self.0 as f32)
     }
 }
 
@@ -64,7 +85,19 @@ impl Display for Evaluation {
             write!(f, "+")?;
         }
 
-        write!(f, "{:.1}", (self.0 as f32) / (Self::ONE_PAWN as f32))
+        write!(f, "{:.1}", (self.0 as f32) / (Self::ONE_PAWN.0 as f32))
+    }
+}
+
+pub struct Centipawn(f32);
+
+impl Display for Centipawn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 >= 0.0 {
+            write!(f, "+")?;
+        }
+
+        write!(f, "{:.1}", self.0)
     }
 }
 
@@ -75,9 +108,25 @@ impl Evaluator {
         Evaluator
     }
 
-    pub fn estimate(&self, _state: &game::State) -> Evaluation {
-        // TODO
-        Evaluation::EVEN
+    pub fn estimate(&self, state: &game::State) -> Evaluation {
+        // Dumb estimate: add up piece worths
+        let mut evaluation = Evaluation::EVEN;
+        for color in Color::ALL {
+            let mutiplier = if *color == state.turn_to_move() {
+                1
+            } else {
+                -1
+            };
+
+            for piece in Piece::ALL {
+                let piece_index = PieceIndex::new(*color, *piece);
+                let piece_worth = Evaluation::ONE_PAWN * PIECE_WORTHS[*piece];
+                let piece_count = state.board().piece_occupancy(piece_index).count_ones() as i32;
+                evaluation += Evaluation::from(piece_worth) * mutiplier * piece_count;
+            }
+        }
+
+        evaluation
     }
 
     pub fn evaluate(&self, state: &game::State) -> Evaluation {
@@ -91,7 +140,7 @@ impl Evaluator {
             return Evaluation::EVEN;
         }
 
-        Evaluation::EVEN
+        self.estimate(state)
     }
 }
 

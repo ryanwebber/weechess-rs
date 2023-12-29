@@ -109,9 +109,9 @@ impl Searcher {
         let mut transpositions = TranspositionTable::with_memory(1024 * 1024 * 256);
         let mut move_buffer = MoveGenerationBuffer::new();
 
-        let mut best_eval = evaluator::Evaluation::NEG_INF;
-
         for depth in 0..max_depth {
+            let mut best_eval = evaluator::Evaluation::NEG_INF;
+
             match Self::analyze_recursive(
                 &game_state,
                 evaluator,

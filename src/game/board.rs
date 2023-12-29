@@ -607,6 +607,10 @@ impl BitBoard {
 
         bb
     }
+
+    pub fn count_ones(self) -> u32 {
+        self.0.count_ones()
+    }
 }
 
 impl Not for BitBoard {

@@ -1,4 +1,5 @@
 #![feature(generic_const_exprs)]
+#![feature(slice_split_once)]
 #![feature(test)]
 
 pub mod engine;

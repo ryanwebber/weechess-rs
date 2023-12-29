@@ -248,7 +248,7 @@ mod fen {
 
             let en_passant_target = match &groups[6] {
                 "-" => None,
-                s => Some(Square::try_parse(s)?),
+                s => Some(Square::try_from(s)?),
             };
 
             let clock = Clock {
@@ -295,22 +295,6 @@ mod fen {
                 token::BLACK_KING => Ok(Self::new(Color::Black, Piece::King)),
                 _ => Err(()),
             }
-        }
-    }
-
-    impl Square {
-        fn try_parse(s: &str) -> Result<Self, ()> {
-            if s.len() != 2 {
-                return Err(());
-            }
-
-            let file = s.chars().nth(0).ok_or(())?;
-            let file = File::from_char(file).ok_or(())?;
-
-            let rank = s.chars().nth(1).ok_or(())?;
-            let rank = Rank::from_char(rank).ok_or(())?;
-
-            Ok(Self::from((file, rank)))
         }
     }
 

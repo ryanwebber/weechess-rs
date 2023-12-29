@@ -5,8 +5,6 @@ use std::{
 
 use crate::game::{self};
 
-pub type EvaluationFunction = fn(&game::State) -> Evaluation;
-
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Evaluation(i32);
 
@@ -45,8 +43,10 @@ impl Neg for Evaluation {
 }
 
 impl Evaluation {
-    pub const NEG_INF: Evaluation = Evaluation(-10000);
-    pub const POS_INF: Evaluation = Evaluation(10000);
+    const ONE_PAWN: i32 = 100;
+
+    pub const NEG_INF: Evaluation = Evaluation(-100 * Self::ONE_PAWN);
+    pub const POS_INF: Evaluation = Evaluation(100 * Self::ONE_PAWN);
     pub const EVEN: Evaluation = Evaluation(0);
 
     pub fn mate_in(_ply: usize) -> Evaluation {
@@ -60,47 +60,19 @@ impl Evaluation {
 
 impl Display for Evaluation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = self.0;
-        if value >= 1000 {
-            write!(f, "Winning")
-        } else if value <= -1000 {
-            write!(f, "Losing")
-        } else {
-            if value > 0 {
-                write!(f, "+")?;
-            }
-
-            write!(f, "{}", value)
+        if *self >= Self::EVEN {
+            write!(f, "+")?;
         }
+
+        write!(f, "{:.1}", (self.0 as f32) / (Self::ONE_PAWN as f32))
     }
 }
 
-pub struct Evaluator {
-    fns: Vec<EvaluationFunction>,
-}
+pub struct Evaluator;
 
 impl Evaluator {
     pub fn new() -> Self {
-        Evaluator {
-            fns: vec![|state| {
-                let mut value = 0;
-                for color in game::Color::ALL {
-                    for piece in game::Piece::ALL {
-                        let piece_index = game::PieceIndex::new(*color, *piece);
-                        let piece_occupancy = state.board().piece_occupancy(piece_index);
-                        for _ in piece_occupancy.iter_ones() {
-                            if *color == state.turn_to_move() {
-                                value += 1
-                            } else {
-                                value -= 1
-                            }
-                        }
-                    }
-                }
-
-                Evaluation(value)
-            }],
-        }
+        Evaluator
     }
 
     pub fn estimate(&self, _state: &game::State) -> Evaluation {

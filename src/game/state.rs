@@ -2,7 +2,10 @@ use std::fmt::Display;
 
 use crate::notation::{self, Fen};
 
-use super::{ArrayMap, Board, Color, File, Move, Piece, PieceIndex, Side, Square};
+use super::{
+    ArrayMap, Board, Color, File, Move, MoveGenerator, MoveQuery, MoveResult, Piece, PieceIndex,
+    Side, Square,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CastleRights {
@@ -84,13 +87,17 @@ impl Default for Clock {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MovePerformError {
+    AmbiguousMove,
     IllegalEnPassant,
+    UnknownMove,
 }
 
 impl Display for MovePerformError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            MovePerformError::AmbiguousMove => write!(f, "Ambiguous move"),
             MovePerformError::IllegalEnPassant => write!(f, "Invalid en passant move"),
+            MovePerformError::UnknownMove => write!(f, "Unknown move"),
         }
     }
 }
@@ -246,6 +253,31 @@ impl State {
                 },
             },
         })
+    }
+
+    pub fn by_performing_moves(
+        state: &Self,
+        moves: &[MoveQuery],
+    ) -> Result<State, MovePerformError> {
+        let mut state = state.clone();
+        let move_generator = MoveGenerator;
+        for mv in moves {
+            let move_set = move_generator.compute_legal_moves(&state);
+            let valid_moves: Vec<&MoveResult> = move_set.filter(*mv).collect();
+            match valid_moves[..] {
+                [mv] => {
+                    state = Self::by_performing_move(&state, &mv.0)?;
+                }
+                [] => {
+                    return Err(MovePerformError::UnknownMove);
+                }
+                _ => {
+                    return Err(MovePerformError::AmbiguousMove);
+                }
+            }
+        }
+
+        Ok(state)
     }
 }
 

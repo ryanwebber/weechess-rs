@@ -434,6 +434,24 @@ impl From<u32> for Square {
     }
 }
 
+impl TryFrom<&str> for Square {
+    type Error = ();
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        if s.len() != 2 {
+            return Err(());
+        }
+
+        let file = s.chars().nth(0).ok_or(())?;
+        let file = File::from_char(file).ok_or(())?;
+
+        let rank = s.chars().nth(1).ok_or(())?;
+        let rank = Rank::from_char(rank).ok_or(())?;
+
+        Ok(Self::from((file, rank)))
+    }
+}
+
 impl ArrayKey for Square {
     const COUNT: usize = 64;
 }

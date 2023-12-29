@@ -210,7 +210,7 @@ fn run() -> Result<(), anyhow::Error> {
 
             Ok(())
         }
-        Some(Commands::Uci) => uci::UciClient::new()
+        Some(Commands::Uci) => uci::Client::new()
             .exec()
             .context("while running UCI client"),
         None => Ok(()),
@@ -233,13 +233,19 @@ mod common {
 
     pub fn print_search_event(event: searcher::StatusEvent) {
         match event {
-            searcher::StatusEvent::BestMove { r#move, evaluation } => {
+            searcher::StatusEvent::BestMove { line, evaluation } => {
+                let line = line
+                    .iter()
+                    .map(|m| as_notation::<_, Peg>(m).to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
                 println!(
-                    "{} {} {}: {}",
+                    "{} {} ({}) {}",
                     "Best Move".bright_green(),
                     "|".dimmed(),
-                    as_notation::<_, Peg>(&r#move),
-                    evaluation
+                    evaluation,
+                    line
                 );
             }
             searcher::StatusEvent::Progress {
@@ -247,8 +253,9 @@ mod common {
                 transposition_saturation,
             } => {
                 let f = format!(
-                    "depth={} transposition_saturation={}",
-                    depth, transposition_saturation
+                    "depth={} tts={:.6}%",
+                    depth,
+                    transposition_saturation * 100.0
                 );
                 println!("{}  {} {}", "Progress".dimmed(), "|".dimmed(), f.dimmed());
             }

@@ -4,13 +4,25 @@ use super::{common, Color, Piece, PieceIndex, Side, Square, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveQuery {
-    FromTo(Square, Square),
+    ByPosition {
+        origin: Square,
+        destination: Square,
+        promotion: Option<Piece>,
+    },
 }
 
 impl MoveQuery {
     pub fn test(&self, m: &Move) -> bool {
         match self {
-            MoveQuery::FromTo(from, to) => m.origin() == *from && m.destination() == *to,
+            MoveQuery::ByPosition {
+                origin,
+                destination,
+                promotion,
+            } => {
+                m.origin() == *origin
+                    && m.destination() == *destination
+                    && m.promotion() == *promotion
+            }
         }
     }
 }

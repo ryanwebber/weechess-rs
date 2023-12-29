@@ -15,7 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub enum StatusEvent {
     BestMove {
-        r#move: game::Move,
+        line: Vec<game::Move>,
         evaluation: evaluator::Evaluation,
     },
     Progress {
@@ -117,8 +117,17 @@ impl Searcher {
                     if e > best_eval {
                         best_eval = e;
                         f(StatusEvent::BestMove {
-                            r#move: transpositions.find(&game_state).unwrap().performed_move,
                             evaluation: e,
+                            line: {
+                                let line: Vec<game::Move> = transpositions
+                                    .iter_moves(&game_state, depth)
+                                    .map(|r| r.0)
+                                    .collect();
+
+                                assert!(!line.is_empty());
+
+                                line
+                            },
                         });
                     }
                 }
@@ -352,7 +361,7 @@ impl TranspositionTable {
         self.entries[index].as_ref()
     }
 
-    fn _iter_moves<'a>(
+    fn iter_moves<'a>(
         &'a self,
         state: &game::State,
         max_depth: usize,
@@ -400,7 +409,7 @@ impl Iterator for TranspositionTableMoveIterator<'_> {
     type Item = MoveResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_index >= self.max_depth {
+        if self.current_index > self.max_depth {
             return None;
         }
 
@@ -489,7 +498,13 @@ mod tests {
         let best_move = rx
             .into_iter()
             .filter_map(|ev| match ev {
-                StatusEvent::BestMove { r#move, evaluation } => Some((r#move, evaluation)),
+                StatusEvent::BestMove { line, evaluation } => {
+                    if let Some(mv) = line.first() {
+                        Some((*mv, evaluation))
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             })
             .inspect(|i| {

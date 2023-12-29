@@ -130,13 +130,26 @@ impl Display for GamePrinter<'_> {
             "  En passant target: {:?}\n",
             self.game.en_passant_target()
         )?;
+
         write!(
             f,
             "  Castle rights: w {}  |  b {}\n",
             self.game.castle_rights(Color::White),
             self.game.castle_rights(Color::Black)
         )?;
+
         write!(f, "  Clock: {}\n", self.game.clock())?;
+
+        write!(
+            f,
+            "\n\nhttps://lichess.org/editor?fen={}&variant=standard&color={}\n\n",
+            urlencoding::encode(&as_notation::<_, Fen>(&self.game).to_string()),
+            match self.game.turn_to_move() {
+                Color::White => "white",
+                Color::Black => "black",
+            }
+        )?;
+
         Ok(())
     }
 }

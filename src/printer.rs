@@ -1,8 +1,8 @@
 use std::{borrow::Cow, fmt::Display};
 
 use crate::{
-    fen::Fen,
     game::{self, ArrayMap, Color, File, Piece, PieceIndex, Rank, Square},
+    notation::{as_notation, Fen},
 };
 
 const BOARD_TEMPLATE_ROWS: &'static [&'static str] = &[
@@ -53,7 +53,7 @@ impl Display for GamePrinter<'_> {
         let pieces: ArrayMap<Square, PieceIndex> = self.game.board().into();
 
         write!(f, "\n")?;
-        write!(f, " {}\n\n", Fen::from(self.game.as_ref()))?;
+        write!(f, " {}\n\n", as_notation::<_, Fen>(&self.game))?;
 
         let mut square_index = 0;
         let mut rank_index = 0;

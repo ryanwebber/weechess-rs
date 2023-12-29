@@ -3,9 +3,9 @@
 
 pub mod engine;
 pub mod evaluator;
-pub mod fen;
 pub mod game;
 pub mod hasher;
+pub mod notation;
 pub mod printer;
 pub mod searcher;
 pub mod uci;

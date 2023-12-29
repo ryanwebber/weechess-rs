@@ -6,10 +6,11 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 use weechess::{
     evaluator,
-    fen::Fen,
     game::{self},
+    notation::{as_notation, try_parse, Fen, Peg},
     printer, searcher, uci,
 };
 
@@ -65,7 +66,7 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Display { fen }) => {
             let game_state = {
                 if let Some(fen) = &fen {
-                    game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
+                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
                     game::State::default()
                 }
@@ -78,7 +79,7 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Evaluate { fen, max_depth }) => {
             let game_state = {
                 if let Some(fen) = &fen {
-                    game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
+                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
                     game::State::default()
                 }
@@ -115,7 +116,7 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Perft { fen, depth }) => {
             let game_state = {
                 if let Some(fen) = &fen {
-                    game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
+                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
                     game::State::default()
                 }
@@ -124,7 +125,12 @@ fn run() -> Result<(), anyhow::Error> {
             let searcher = searcher::Searcher::new();
             let count = searcher.perft(&game_state, depth, |gs, mv, depth, count| {
                 if depth == 1 {
-                    println!("{}: {} [{}]", mv.peg_notation(), count, Fen::from(gs));
+                    println!(
+                        "{}: {} [{}]",
+                        as_notation::<_, Peg>(mv),
+                        count,
+                        as_notation::<_, Fen>(gs)
+                    );
                 }
             });
 
@@ -135,7 +141,7 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Repl { fen }) => {
             let mut game_state = {
                 if let Some(fen) = &fen {
-                    game::State::try_from(Fen::from(fen)).context("while parsing FEN")?
+                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
                     game::State::default()
                 }
@@ -185,18 +191,15 @@ fn run() -> Result<(), anyhow::Error> {
                         tx.send(()).unwrap();
                         outer_handle.join().unwrap();
                     }
-                    Some(repl::Commands::Load { fen }) => {
-                        let f = Fen::from(fen);
-                        match game::State::try_from(f) {
-                            Ok(gs) => {
-                                game_state = gs;
-                                println!("{}", printer::GamePrinter::new(&game_state));
-                            }
-                            Err(e) => {
-                                eprintln!("[error] {:#}", e);
-                            }
+                    Some(repl::Commands::Load { fen }) => match try_parse::<_, Fen>(&fen) {
+                        Ok(gs) => {
+                            game_state = gs;
+                            println!("{}", printer::GamePrinter::new(&game_state));
                         }
-                    }
+                        Err(..) => {
+                            eprintln!("{} Invalid fen: {}", "[Error]".red(), fen);
+                        }
+                    },
                     Some(repl::Commands::Quit) => break,
                     Some(repl::Commands::State) => {
                         println!("{}", printer::GamePrinter::new(&game_state));
@@ -223,7 +226,10 @@ fn main() {
 
 mod common {
     use colored::Colorize;
-    use weechess::searcher;
+    use weechess::{
+        notation::{as_notation, Peg},
+        searcher,
+    };
 
     pub fn print_search_event(event: searcher::StatusEvent) {
         match event {
@@ -232,7 +238,7 @@ mod common {
                     "{} {} {}: {}",
                     "Best Move".bright_green(),
                     "|".dimmed(),
-                    r#move.peg_notation(),
+                    as_notation::<_, Peg>(&r#move),
                     evaluation
                 );
             }

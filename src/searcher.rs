@@ -447,7 +447,10 @@ impl CancellationToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{Square, State};
+    use crate::{
+        game::Square,
+        notation::{self, as_notation, Fen, Peg},
+    };
 
     #[test]
     fn test_termination() {
@@ -462,8 +465,10 @@ mod tests {
 
     #[test]
     fn test_move_gen_and_search() {
-        let gs =
-            State::from_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8").unwrap();
+        let gs = notation::try_parse::<_, Fen>(
+            "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        )
+        .unwrap();
 
         let searcher = Searcher::new();
         let count = searcher.perft(&gs, 3, |_, _, _, _| {});
@@ -474,9 +479,10 @@ mod tests {
     fn test_find_forced_mate_in_3() {
         let searcher = Searcher::new();
         let evaluator = evaluator::Evaluator::new();
-        let state =
-            game::State::from_fen("r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1")
-                .unwrap();
+        let state = notation::try_parse::<_, Fen>(
+            "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1",
+        )
+        .unwrap();
 
         let (handle, _tx, rx) = searcher.analyze(state, evaluator, None);
 
@@ -486,7 +492,10 @@ mod tests {
                 StatusEvent::BestMove { r#move, evaluation } => Some((r#move, evaluation)),
                 _ => None,
             })
-            .inspect(|i| println!("best_move={}", i.0.peg_notation()))
+            .inspect(|i| {
+                let notated_move = as_notation::<_, Peg>(&i.0);
+                println!("{} {}", notated_move, i.1);
+            })
             .last()
             .unwrap();
 

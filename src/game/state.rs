@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::fen;
+use crate::notation::{self, Fen};
 
 use super::{ArrayMap, Board, Color, File, Move, Piece, PieceIndex, Side, Square};
 
@@ -121,10 +121,6 @@ impl State {
             en_passant_target,
             clock,
         }
-    }
-
-    pub fn from_fen(fen: &str) -> Result<Self, fen::ParseError> {
-        fen::Fen::from(fen).try_into()
     }
 
     pub fn board(&self) -> &Board {
@@ -255,7 +251,8 @@ impl State {
 
 impl Default for State {
     fn default() -> Self {
-        fen::Fen::default().try_into().unwrap()
+        let str = notation::Fen::DEFAULT;
+        notation::try_parse::<_, Fen>(str).unwrap()
     }
 }
 

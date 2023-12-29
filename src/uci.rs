@@ -7,6 +7,7 @@ use std::{
 use crate::{
     evaluator::Evaluator,
     game,
+    notation::{as_notation, Peg},
     searcher::{self, Searcher},
 };
 
@@ -89,7 +90,7 @@ impl Search {
             while let Ok(event) = receiver.recv() {
                 match event {
                     searcher::StatusEvent::BestMove { r#move, evaluation } => {
-                        println!("bestmove {}", r#move.peg_notation());
+                        println!("bestmove {}", as_notation::<_, Peg>(&r#move));
                         println!("info score {}", evaluation);
                         best_move = Some(r#move);
                     }
@@ -100,7 +101,7 @@ impl Search {
             }
 
             if let Some(best_move) = best_move {
-                println!("bestmove {}", best_move.peg_notation());
+                println!("bestmove {}", as_notation::<_, Peg>(&best_move));
             }
 
             ()

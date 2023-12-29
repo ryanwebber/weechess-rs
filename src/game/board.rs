@@ -410,9 +410,15 @@ impl Into<u8> for Square {
     }
 }
 
-impl From<u8> for Square {
-    fn from(value: u8) -> Self {
-        Self(value)
+impl TryFrom<u8> for Square {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value > 63 {
+            Err(())
+        } else {
+            Ok(Self(value))
+        }
     }
 }
 
@@ -559,7 +565,7 @@ impl BitBoard {
         };
 
         self.set_raw(bit, false);
-        Some(Square::from(bit as u8))
+        Some(Square::try_from(bit as u8).unwrap())
     }
 
     #[inline]
@@ -822,16 +828,16 @@ mod tests {
     #[test]
     fn test_bitboard_pop() {
         let mut board = BitBoard::ZERO;
-        board.set(Square::from(0 as u8), true);
-        board.set(Square::from(12 as u8), true);
-        board.set(Square::from(13 as u8), true);
-        board.set(Square::from(31 as u8), true);
+        board.set(Square::try_from(0 as u8).unwrap(), true);
+        board.set(Square::try_from(12 as u8).unwrap(), true);
+        board.set(Square::try_from(13 as u8).unwrap(), true);
+        board.set(Square::try_from(31 as u8).unwrap(), true);
         board.set(Square::C7, true);
 
-        assert_eq!(board.pop(), Some(Square::from(0 as u8)));
-        assert_eq!(board.pop(), Some(Square::from(12 as u8)));
-        assert_eq!(board.pop(), Some(Square::from(13 as u8)));
-        assert_eq!(board.pop(), Some(Square::from(31 as u8)));
+        assert_eq!(board.pop(), Some(Square::try_from(0 as u8).unwrap()));
+        assert_eq!(board.pop(), Some(Square::try_from(12 as u8).unwrap()));
+        assert_eq!(board.pop(), Some(Square::try_from(13 as u8).unwrap()));
+        assert_eq!(board.pop(), Some(Square::try_from(31 as u8).unwrap()));
         assert_eq!(board.pop(), Some(Square::C7.into()));
         assert_eq!(board.pop(), None);
     }

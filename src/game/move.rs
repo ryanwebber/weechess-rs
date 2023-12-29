@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use self::compact::BitSetExt;
 
 use super::{common, Color, Piece, PieceIndex, Side, Square, State};
@@ -143,46 +141,6 @@ impl Move {
     pub fn resulting_piece(&self) -> Piece {
         self.promotion().unwrap_or(self.piece())
     }
-
-    pub fn peg_notation(&self) -> impl Display {
-        PegNotatedMove { mv: *self }
-    }
-}
-
-struct PegNotatedMove {
-    mv: Move,
-}
-
-impl Display for PegNotatedMove {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.mv.is_any_castle() {
-            write!(f, "O-O")?;
-            if self.mv.is_castle(Side::Queen) {
-                write!(f, "-O")?;
-            }
-        } else {
-            let piece = self.mv.piece();
-            if piece != Piece::Pawn {
-                write!(f, "{}", piece)?;
-            }
-
-            let origin = self.mv.origin();
-            if self.mv.is_capture() {
-                if piece == Piece::Pawn {
-                    write!(f, "{}", origin.file())?;
-                }
-                write!(f, "x")?;
-            }
-
-            write!(f, "{}", self.mv.destination())?;
-
-            if self.mv.is_promotion() {
-                write!(f, "={}", self.mv.promotion().unwrap())?;
-            }
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -291,7 +249,7 @@ mod compact {
 
         fn origin(&self) -> Square {
             let origin: u8 = self[ORIGIN_BIT_FIELD].load();
-            Square::from(origin)
+            Square::try_from(origin).unwrap()
         }
 
         fn set_origin(&mut self, origin: Square) {
@@ -301,7 +259,7 @@ mod compact {
 
         fn dest(&self) -> Square {
             let dest: u8 = self[DEST_BIT_FIELD].load();
-            Square::from(dest)
+            Square::try_from(dest).unwrap()
         }
 
         fn set_dest(&mut self, dest: Square) {

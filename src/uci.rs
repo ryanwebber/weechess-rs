@@ -9,7 +9,7 @@ use rand::Rng;
 use crate::{
     evaluator::Evaluator,
     game::{self, MoveQuery, Square},
-    notation::{as_notation, try_parse, Fen, Peg},
+    notation::{try_parse, Fen},
     printer::GamePrinter,
     searcher::{self, Searcher},
 };
@@ -123,6 +123,11 @@ impl Client {
                         }
                     }
                 }
+                Some((&"stop", _)) => {
+                    if let Some(search) = current_search.take() {
+                        search.wait_cancel();
+                    }
+                }
                 Some((&"uci", _)) => {
                     println!("id name {}_v{}", PKG_NAME, PKG_VERSION);
                     println!("id author {}", PKG_AUTHOR);
@@ -145,11 +150,6 @@ impl Client {
                         );
                     } else {
                         eprintln!("No search running...");
-                    }
-                }
-                Some((&".stop", _)) => {
-                    if let Some(search) = current_search.take() {
-                        search.wait_cancel();
                     }
                 }
                 _ => {
@@ -203,7 +203,16 @@ impl Search {
                         println!(
                             "info pv {}",
                             line.iter()
-                                .map(|m| as_notation::<_, Peg>(m).to_string())
+                                .map(|m| {
+                                    format!("{}{}{}", m.origin(), m.destination(), {
+                                        if let Some(p) = m.promotion() {
+                                            let c: char = p.into();
+                                            String::from(c.to_ascii_lowercase())
+                                        } else {
+                                            String::from("")
+                                        }
+                                    })
+                                })
                                 .collect::<Vec<_>>()
                                 .join(" ")
                         );
@@ -216,8 +225,15 @@ impl Search {
                 }
             }
 
-            if let Some(best_move) = best_line.first() {
-                println!("bestmove {}", as_notation::<_, Peg>(&best_move));
+            if let Some(m) = best_line.first() {
+                println!("bestmove {}{}{}", m.origin(), m.destination(), {
+                    if let Some(p) = m.promotion() {
+                        let c: char = p.into();
+                        String::from(c.to_ascii_lowercase())
+                    } else {
+                        String::from("")
+                    }
+                });
             }
 
             ()

@@ -106,7 +106,10 @@ impl Searcher {
     {
         let max_depth = max_depth.unwrap_or(usize::MAX);
         let mut rng = rng;
-        let mut transpositions = TranspositionTable::with_memory(1024 * 1024 * 256);
+        let mut transpositions = TranspositionTable::with_memory(1024 * 1024 * 256, {
+            hasher::ZobristHasher::with(&mut rng)
+        });
+
         let mut move_buffer = MoveGenerationBuffer::new();
 
         for depth in 0..max_depth {
@@ -236,7 +239,7 @@ impl Searcher {
             });
 
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations
-        let mut move_buffer = MoveGenerationBuffer::new();
+        let mut next_buffer = MoveGenerationBuffer::new();
 
         for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
             let evaluation = -Self::analyze_recursive(
@@ -249,7 +252,7 @@ impl Searcher {
                 -beta,
                 -alpha,
                 token,
-                &mut move_buffer,
+                &mut next_buffer,
             )?;
 
             // This move is too good for the opponent, so they will never allow us to reach
@@ -362,18 +365,18 @@ struct TranspositionTable {
 }
 
 impl TranspositionTable {
-    fn with_count(size: usize) -> Self {
+    fn with_count(size: usize, hasher: hasher::ZobristHasher) -> Self {
         Self {
-            hasher: hasher::ZobristHasher::with_seed(0),
+            hasher,
             entries: vec![None; size],
             used_slots: 0,
         }
     }
 
-    fn with_memory(size_in_bytes: usize) -> Self {
+    fn with_memory(size_in_bytes: usize, hasher: hasher::ZobristHasher) -> Self {
         let size_of_entry = std::mem::size_of::<TranspositionEntry>();
         let count = size_in_bytes / size_of_entry;
-        Self::with_count(count)
+        Self::with_count(count, hasher)
     }
 
     fn find(&self, state: &game::State) -> Option<&TranspositionEntry> {

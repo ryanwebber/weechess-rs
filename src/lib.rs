@@ -2,6 +2,7 @@
 #![feature(slice_split_once)]
 #![feature(test)]
 
+pub mod book;
 pub mod engine;
 pub mod evaluator;
 pub mod game;

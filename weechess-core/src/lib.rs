@@ -10,6 +10,7 @@ mod hasher;
 mod movegen;
 mod moves;
 mod piece;
+mod printer;
 mod state;
 
 pub mod notation;
@@ -24,4 +25,5 @@ pub use hasher::*;
 pub use movegen::*;
 pub use moves::*;
 pub use piece::*;
+pub use printer::*;
 pub use state::*;

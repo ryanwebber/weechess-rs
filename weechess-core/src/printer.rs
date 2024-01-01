@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt::Display};
 
-use weechess_core::{
+use crate::{
     notation::{into_notation, Fen},
     {utils::ArrayMap, Color, File, Piece, PieceIndex, Rank, Square, State},
 };

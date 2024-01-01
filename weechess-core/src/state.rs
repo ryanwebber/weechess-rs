@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use crate::notation::{self, Fen};
+use crate::{
+    notation::{self, Fen},
+    GamePrinter,
+};
 
 use super::{
     utils::ArrayMap, Board, Color, File, Move, MoveGenerator, MoveQuery, MoveResult, Piece,
@@ -154,6 +157,10 @@ impl State {
         self.board.is_check(self.turn_to_move)
     }
 
+    pub fn pretty<'a>(&'a self) -> impl Display + 'a {
+        GamePrinter::new(self)
+    }
+
     pub fn by_performing_move(state: &Self, mv: &Move) -> Result<State, MovePerformError> {
         let board = {
             let mut map = state.board().piece_map().clone();
@@ -172,11 +179,11 @@ impl State {
                     .ok_or(MovePerformError::IllegalEnPassant)?;
 
                 let capture = PieceIndex::new(opposing_color, Piece::Pawn);
-                let captured_square = en_passant_target
-                    .offset(moving_color.forward())
+                let capture_square = en_passant_target
+                    .offset(moving_color.backward())
                     .ok_or(MovePerformError::IllegalEnPassant)?;
 
-                map[capture].set(captured_square, false);
+                map[capture].set(capture_square, false);
             } else if let Some(capture) = mv.capture() {
                 let capture = PieceIndex::new(opposing_color, capture);
                 map[capture].set(mv.destination(), false);
@@ -290,10 +297,30 @@ impl Default for State {
 
 #[cfg(test)]
 mod tests {
+    use crate::notation::{into_notation, San};
+
     use super::*;
 
     #[test]
     fn test_default_state() {
         let _ = State::default();
+    }
+
+    #[test]
+    fn test_apply_en_passant_move() {
+        let state = notation::try_from_notation::<_, Fen>(
+            "r1bq2k1/3nb1pp/p2p2r1/Pp1P1p2/1BN1p2P/6P1/1PPQ1P2/R3KB1R w KQ b6 0 18",
+        )
+        .unwrap();
+
+        let move_query = notation::try_from_notation::<_, San>("axb6").unwrap();
+
+        let new_state = State::by_performing_moves(&state, &[move_query]).unwrap();
+        assert_eq!(
+            into_notation::<_, Fen>(&new_state).to_string(),
+            "r1bq2k1/3nb1pp/pP1p2r1/3P1p2/1BN1p2P/6P1/1PPQ1P2/R3KB1R b KQ - 0 18",
+            "{}",
+            new_state.pretty()
+        );
     }
 }

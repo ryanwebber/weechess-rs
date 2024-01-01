@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     hasher,
     notation::{try_from_notation, San},
-    Move, MoveGenerator, State,
+    Move, MoveGenerator, MoveQuery, State,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -18,6 +18,14 @@ impl Book {
         Self {
             table: BTreeMap::new(),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&hasher::Hash, &[Move])> {
+        self.table.iter().map(|(hash, moves)| (hash, &moves[..]))
     }
 
     pub fn find(&self, hash: hasher::Hash) -> Option<&[Move]> {
@@ -34,15 +42,17 @@ impl Book {
 
 #[derive(Debug)]
 pub enum BookParseError {
-    InvalidMove,
-    UnknownMove,
+    InvalidMoveStr(String),
+    UnknownMove(String, MoveQuery),
 }
 
 impl std::fmt::Display for BookParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            BookParseError::InvalidMove => write!(f, "invalid move"),
-            BookParseError::UnknownMove => write!(f, "unknown move"),
+        match self {
+            BookParseError::InvalidMoveStr(str) => write!(f, "invalid move string: {}", str),
+            BookParseError::UnknownMove(str, query) => {
+                write!(f, "unknown move: {} for {}", str, query)
+            }
         }
     }
 }
@@ -64,6 +74,13 @@ impl BookParser {
                 "0-1" => false,
                 _ => !t.ends_with('.'),
             })
+            .map(|c| {
+                if let Some(dot_index) = c.find('.') {
+                    &c[dot_index + 1..]
+                } else {
+                    c
+                }
+            })
             .scan(
                 State::default(),
                 |state, move_str| match try_from_notation::<_, San>(move_str) {
@@ -71,7 +88,17 @@ impl BookParser {
                         let move_generator = MoveGenerator;
                         let valid_moves = move_generator.compute_legal_moves(state);
                         let Some(result) = valid_moves.find(&query) else {
-                            return Some(Err(BookParseError::UnknownMove));
+                            println!("Unknown move '{}': {}", move_str, query);
+                            println!("Game state:\n{}", state.pretty());
+                            println!("Available moves:");
+                            for m in valid_moves.moves() {
+                                println!("  {}", m.0);
+                            }
+
+                            return Some(Err(BookParseError::UnknownMove(
+                                move_str.to_string(),
+                                query,
+                            )));
                         };
 
                         let entry = (hasher.hash(state), result.0);
@@ -79,7 +106,7 @@ impl BookParser {
 
                         Some(Ok(entry))
                     }
-                    Err(..) => Some(Err(BookParseError::InvalidMove)),
+                    Err(..) => Some(Err(BookParseError::InvalidMoveStr(move_str.to_string()))),
                 },
             )
     }

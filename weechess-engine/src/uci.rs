@@ -6,7 +6,6 @@ use std::{
 
 use crate::{
     evaluator::Evaluator,
-    printer::GamePrinter,
     searcher::{self, Searcher},
     version::EngineVersion,
 };
@@ -25,6 +24,7 @@ pub struct Client;
 
 impl Client {
     pub fn new() -> Self {
+        println!("Hello world");
         Self
     }
 
@@ -100,11 +100,14 @@ impl Client {
                                     None
                                 };
 
-                                Some(MoveQuery::ByPosition {
-                                    origin,
-                                    destination,
-                                    promotion,
-                                })
+                                let mut query = MoveQuery::new();
+                                query.set_origin(origin);
+                                query.set_destination(destination);
+                                if let Some(promotion) = promotion {
+                                    query.set_promotion(promotion);
+                                }
+
+                                Some(query)
                             })
                             .collect();
 
@@ -141,7 +144,7 @@ impl Client {
                 }
                 Some((&"quit", _)) => break,
                 Some((&".state", _)) => {
-                    eprintln!("{}", GamePrinter::new(&current_position));
+                    eprintln!("{}", current_position.pretty());
                 }
                 Some((&".status", _)) => {
                     if let Some(search) = &current_search {

@@ -500,6 +500,8 @@ mod tests {
         .unwrap();
 
         let searcher = Searcher::new();
+
+        // 5 => 89941194, but this is too slow and perf tests are not a thing yet
         let count = searcher.perft(&gs, 3, |_, _, _, _| {});
         assert_eq!(count, 62379);
     }

@@ -392,7 +392,7 @@ mod fen {
 }
 
 mod san {
-    use crate::MoveQuery;
+    use crate::{File, MoveQuery, Piece, Rank, Side};
 
     use super::TryFromNotation;
 
@@ -402,7 +402,150 @@ mod san {
         type Error = ();
 
         fn try_from_notation(notation: &str) -> Result<MoveQuery, Self::Error> {
-            todo!()
+            // First, check for simple castles
+            if notation.starts_with("O-O-O") {
+                return Ok(MoveQuery::by_castling(Side::Queen));
+            } else if notation.starts_with("O-O") {
+                return Ok(MoveQuery::by_castling(Side::King));
+            }
+
+            let mut query = MoveQuery::new();
+            let mut iter = notation.chars().rev().peekable();
+
+            // Skip the check/checkmate indicator
+            if iter.peek() == Some(&'#') || iter.peek() == Some(&'+') {
+                iter.next();
+            }
+
+            // Promotion
+            if let Some(c) = iter.peek().copied() {
+                if c.is_ascii_uppercase() {
+                    iter.next();
+
+                    match c {
+                        'Q' => query.set_promotion(Piece::Queen),
+                        'R' => query.set_promotion(Piece::Rook),
+                        'B' => query.set_promotion(Piece::Bishop),
+                        'N' => query.set_promotion(Piece::Knight),
+                        _ => return Err(()),
+                    }
+
+                    if iter.peek() == Some(&'=') {
+                        iter.next();
+                    }
+                }
+            }
+
+            // Destination rank
+            if let Some(r) = iter.peek().copied() {
+                if r.is_ascii_digit() {
+                    iter.next();
+
+                    match r {
+                        '1' => query.set_destination_rank(Rank::ONE),
+                        '2' => query.set_destination_rank(Rank::TWO),
+                        '3' => query.set_destination_rank(Rank::THREE),
+                        '4' => query.set_destination_rank(Rank::FOUR),
+                        '5' => query.set_destination_rank(Rank::FIVE),
+                        '6' => query.set_destination_rank(Rank::SIX),
+                        '7' => query.set_destination_rank(Rank::SEVEN),
+                        '8' => query.set_destination_rank(Rank::EIGHT),
+                        _ => return Err(()),
+                    }
+                }
+            }
+
+            // Destination file
+            if let Some(f) = iter.peek().copied() {
+                if f.is_ascii_lowercase() {
+                    iter.next();
+
+                    match f {
+                        'a' => query.set_destination_file(File::A),
+                        'b' => query.set_destination_file(File::B),
+                        'c' => query.set_destination_file(File::C),
+                        'd' => query.set_destination_file(File::D),
+                        'e' => query.set_destination_file(File::E),
+                        'f' => query.set_destination_file(File::F),
+                        'g' => query.set_destination_file(File::G),
+                        'h' => query.set_destination_file(File::H),
+                        _ => return Err(()),
+                    }
+                }
+            }
+
+            // Captures
+            if iter.peek() == Some(&'x') {
+                iter.next();
+                query.set_is_capture(true);
+            }
+
+            // Origin rank
+            if let Some(r) = iter.peek().copied() {
+                if r.is_ascii_digit() {
+                    iter.next();
+
+                    match r {
+                        '1' => query.set_origin_rank(Rank::ONE),
+                        '2' => query.set_origin_rank(Rank::TWO),
+                        '3' => query.set_origin_rank(Rank::THREE),
+                        '4' => query.set_origin_rank(Rank::FOUR),
+                        '5' => query.set_origin_rank(Rank::FIVE),
+                        '6' => query.set_origin_rank(Rank::SIX),
+                        '7' => query.set_origin_rank(Rank::SEVEN),
+                        '8' => query.set_origin_rank(Rank::EIGHT),
+                        _ => return Err(()),
+                    }
+                }
+            }
+
+            // Origin file
+            if let Some(f) = iter.peek().copied() {
+                if f.is_ascii_lowercase() {
+                    iter.next();
+
+                    match f {
+                        'a' => query.set_origin_file(File::A),
+                        'b' => query.set_origin_file(File::B),
+                        'c' => query.set_origin_file(File::C),
+                        'd' => query.set_origin_file(File::D),
+                        'e' => query.set_origin_file(File::E),
+                        'f' => query.set_origin_file(File::F),
+                        'g' => query.set_origin_file(File::G),
+                        'h' => query.set_origin_file(File::H),
+                        _ => return Err(()),
+                    }
+                }
+            }
+
+            // Origin piece type
+            if let Some(p) = iter.peek().copied() {
+                if p.is_ascii_uppercase() {
+                    iter.next();
+
+                    match p {
+                        'K' => query.set_piece(Piece::King),
+                        'Q' => query.set_piece(Piece::Queen),
+                        'R' => query.set_piece(Piece::Rook),
+                        'B' => query.set_piece(Piece::Bishop),
+                        'N' => query.set_piece(Piece::Knight),
+                        'P' => query.set_piece(Piece::Pawn),
+                        _ => return Err(()),
+                    }
+                }
+            }
+
+            // At this point we should have no more characters left
+            if iter.peek().is_some() {
+                return Err(());
+            }
+
+            // If we have no piece type, it's a pawn move
+            if query.piece.is_none() {
+                query.set_piece(Piece::Pawn);
+            }
+
+            Ok(query)
         }
     }
 }

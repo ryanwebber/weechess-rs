@@ -11,7 +11,7 @@ use weechess_core::{
     notation::{into_notation, try_from_notation, Fen, Peg},
     State,
 };
-use weechess_engine::{evaluator, printer, searcher, uci, version::EngineVersion};
+use weechess_engine::{evaluator, searcher, uci, version::EngineVersion};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -77,7 +77,7 @@ fn run() -> Result<(), anyhow::Error> {
                 }
             };
 
-            println!("{}", printer::GamePrinter::new(&game_state));
+            println!("{}", game_state.pretty());
 
             Ok(())
         }
@@ -210,7 +210,7 @@ fn run() -> Result<(), anyhow::Error> {
                     Some(repl::Commands::Load { fen }) => match try_from_notation::<_, Fen>(&fen) {
                         Ok(gs) => {
                             game_state = gs;
-                            println!("{}", printer::GamePrinter::new(&game_state));
+                            println!("{}", game_state.pretty());
                         }
                         Err(..) => {
                             eprintln!("{} Invalid fen: {}", "[Error]".red(), fen);
@@ -218,7 +218,7 @@ fn run() -> Result<(), anyhow::Error> {
                     },
                     Some(repl::Commands::Quit) => break,
                     Some(repl::Commands::State) => {
-                        println!("{}", printer::GamePrinter::new(&game_state));
+                        println!("{}", game_state.pretty());
                     }
                     None => {}
                 }

@@ -8,19 +8,16 @@ use std::{
 
 use rand::{seq::SliceRandom, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use weechess_core::{Move, MoveGenerationBuffer, MoveGenerator, MoveResult, State, ZobristHasher};
 
-use crate::{
-    evaluator,
-    game::{self, MoveGenerationBuffer, MoveResult},
-    hasher,
-};
+use crate::evaluator;
 
 type RandomNumberGenerator = ChaCha8Rng;
 
 #[derive(Debug)]
 pub enum StatusEvent {
     BestMove {
-        line: Vec<game::Move>,
+        line: Vec<Move>,
         evaluation: evaluator::Evaluation,
     },
     Progress {
@@ -42,7 +39,7 @@ impl Searcher {
 
     pub fn analyze(
         &self,
-        state: game::State,
+        state: State,
         rng_seed: u64,
         evaluator: evaluator::Evaluator,
         max_depth: Option<usize>,
@@ -95,7 +92,7 @@ impl Searcher {
     }
 
     fn analyze_iterative<F>(
-        game_state: game::State,
+        game_state: State,
         evaluator: &evaluator::Evaluator,
         rng: RandomNumberGenerator,
         max_depth: Option<usize>,
@@ -106,9 +103,8 @@ impl Searcher {
     {
         let max_depth = max_depth.unwrap_or(usize::MAX);
         let mut rng = rng;
-        let mut transpositions = TranspositionTable::with_memory(1024 * 1024 * 256, {
-            hasher::ZobristHasher::with(&mut rng)
-        });
+        let mut transpositions =
+            TranspositionTable::with_memory(1024 * 1024 * 256, ZobristHasher::with(&mut rng));
 
         let mut move_buffer = MoveGenerationBuffer::new();
 
@@ -138,7 +134,7 @@ impl Searcher {
                         f(StatusEvent::BestMove {
                             evaluation: e,
                             line: {
-                                let line: Vec<game::Move> = transpositions
+                                let line: Vec<Move> = transpositions
                                     .iter_moves(&game_state, depth)
                                     .map(|r| r.0)
                                     .collect();
@@ -161,7 +157,7 @@ impl Searcher {
     }
 
     fn analyze_recursive(
-        game_state: &game::State,
+        game_state: &State,
         evaluator: &evaluator::Evaluator,
         rng: &mut ChaCha8Rng,
         transpositions: &mut TranspositionTable,
@@ -214,9 +210,9 @@ impl Searcher {
             return Self::quiescence_search(game_state, evaluator, alpha, beta);
         }
 
-        let move_generator = game::MoveGenerator;
+        let move_generator = MoveGenerator;
         let mut evaluation_type = EvaluationKind::UpperBound;
-        let mut best_move: Option<game::Move> = None;
+        let mut best_move: Option<Move> = None;
 
         move_generator.compute_legal_moves_into(game_state, buffer);
 
@@ -297,7 +293,7 @@ impl Searcher {
     }
 
     fn quiescence_search(
-        game_state: &game::State,
+        game_state: &State,
         evaluator: &evaluator::Evaluator,
         _alpha: evaluator::Evaluation,
         _beta: evaluator::Evaluation,
@@ -305,9 +301,9 @@ impl Searcher {
         Ok(evaluator.evaluate(game_state))
     }
 
-    pub fn perft<F>(&self, state: &game::State, depth: usize, mut f: F) -> usize
+    pub fn perft<F>(&self, state: &State, depth: usize, mut f: F) -> usize
     where
-        F: FnMut(&game::State, &game::Move, usize, usize) -> (),
+        F: FnMut(&State, &Move, usize, usize) -> (),
     {
         let mut buffers: Vec<MoveGenerationBuffer> =
             std::iter::repeat_with(MoveGenerationBuffer::new)
@@ -320,15 +316,15 @@ impl Searcher {
     }
 
     fn perft_recursive<F>(
-        state: &game::State,
+        state: &State,
         depth: usize,
-        buffers: &mut [game::MoveGenerationBuffer],
+        buffers: &mut [MoveGenerationBuffer],
         count: &mut usize,
         f: &mut F,
     ) where
-        F: FnMut(&game::State, &game::Move, usize, usize) -> (),
+        F: FnMut(&State, &Move, usize, usize) -> (),
     {
-        let generator = game::MoveGenerator;
+        let generator = MoveGenerator;
         if let Some((buffer, remaining_buffers)) = buffers.split_first_mut() {
             generator.compute_legal_moves_into(&state, buffer);
 
@@ -359,13 +355,13 @@ enum EvaluationKind {
 struct SearchInterrupt;
 
 struct TranspositionTable {
-    hasher: hasher::ZobristHasher,
+    hasher: ZobristHasher,
     entries: Vec<Option<TranspositionEntry>>,
     used_slots: usize,
 }
 
 impl TranspositionTable {
-    fn with_count(size: usize, hasher: hasher::ZobristHasher) -> Self {
+    fn with_count(size: usize, hasher: ZobristHasher) -> Self {
         Self {
             hasher,
             entries: vec![None; size],
@@ -373,13 +369,13 @@ impl TranspositionTable {
         }
     }
 
-    fn with_memory(size_in_bytes: usize, hasher: hasher::ZobristHasher) -> Self {
+    fn with_memory(size_in_bytes: usize, hasher: ZobristHasher) -> Self {
         let size_of_entry = std::mem::size_of::<TranspositionEntry>();
         let count = size_in_bytes / size_of_entry;
         Self::with_count(count, hasher)
     }
 
-    fn find(&self, state: &game::State) -> Option<&TranspositionEntry> {
+    fn find(&self, state: &State) -> Option<&TranspositionEntry> {
         let hash = self.hasher.hash(state);
         let index = hash as usize % self.entries.len();
         self.entries[index].as_ref()
@@ -387,7 +383,7 @@ impl TranspositionTable {
 
     fn iter_moves<'a>(
         &'a self,
-        state: &game::State,
+        state: &State,
         max_depth: usize,
     ) -> impl Iterator<Item = MoveResult> + 'a {
         TranspositionTableMoveIterator {
@@ -398,7 +394,7 @@ impl TranspositionTable {
         }
     }
 
-    fn insert(&mut self, state: &game::State, entry: TranspositionEntry) {
+    fn insert(&mut self, state: &State, entry: TranspositionEntry) {
         let hash = self.hasher.hash(state);
         let index = hash as usize % self.entries.len();
         if self.entries[index].is_none() {
@@ -416,7 +412,7 @@ impl TranspositionTable {
 #[derive(Clone, Debug)]
 struct TranspositionEntry {
     kind: EvaluationKind,
-    performed_move: game::Move,
+    performed_move: Move,
     depth: usize,
     max_depth: usize,
     evaluation: evaluator::Evaluation,
@@ -426,7 +422,7 @@ struct TranspositionTableMoveIterator<'a> {
     table: &'a TranspositionTable,
     max_depth: usize,
     current_index: usize,
-    current_game_state: game::State,
+    current_game_state: State,
 }
 
 impl Iterator for TranspositionTableMoveIterator<'_> {
@@ -442,7 +438,7 @@ impl Iterator for TranspositionTableMoveIterator<'_> {
         };
 
         let Ok(next_game_state) =
-            game::State::by_performing_move(&self.current_game_state, &entry.performed_move)
+            State::by_performing_move(&self.current_game_state, &entry.performed_move)
         else {
             return None;
         };
@@ -480,16 +476,16 @@ impl CancellationToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        game::Square,
-        notation::{self, as_notation, Fen, Peg},
+    use weechess_core::{
+        notation::{self, into_notation, Fen, Peg},
+        Square,
     };
 
     #[test]
     fn test_termination() {
         let searcher = Searcher::new();
         let evaluator = evaluator::Evaluator::new();
-        let state = game::State::default();
+        let state = State::default();
         let (handle, tx, _) = searcher.analyze(state, 0, evaluator, None);
         tx.send(ControlEvent::Stop).unwrap();
 
@@ -498,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_move_gen_and_search() {
-        let gs = notation::try_parse::<_, Fen>(
+        let gs = notation::try_from_notation::<_, Fen>(
             "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
         )
         .unwrap();
@@ -512,7 +508,7 @@ mod tests {
     fn test_find_forced_mate_in_3() {
         let searcher = Searcher::new();
         let evaluator = evaluator::Evaluator::new();
-        let state = notation::try_parse::<_, Fen>(
+        let state = notation::try_from_notation::<_, Fen>(
             "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1",
         )
         .unwrap();
@@ -532,7 +528,7 @@ mod tests {
                 _ => None,
             })
             .inspect(|i| {
-                let notated_move = as_notation::<_, Peg>(&i.0);
+                let notated_move = into_notation::<_, Peg>(&i.0).to_string();
                 println!("{} {}", notated_move, i.1);
             })
             .last()

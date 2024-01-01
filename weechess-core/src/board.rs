@@ -4,7 +4,10 @@ use std::{
     ops::{Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, Not},
 };
 
-use super::{ArrayKey, ArrayMap, AttackGenerator, Color, Index, Piece, PieceIndex, FILE_MASKS};
+use super::{
+    utils::ArrayKey, utils::ArrayMap, utils::Index, AttackGenerator, Color, Piece, PieceIndex,
+    FILE_MASKS,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
@@ -822,7 +825,7 @@ impl From<&Board> for ArrayMap<Square, PieceIndex> {
 #[cfg(test)]
 mod tests {
 
-    use crate::game::Piece;
+    use crate::Piece;
 
     use super::*;
 

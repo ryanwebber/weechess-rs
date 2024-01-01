@@ -1,6 +1,8 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use super::{ArrayKey, BitBoard, Color, Index, Offset, Piece, PieceIndex, Square};
+use crate::utils::{ArrayKey, Index};
+
+use super::{BitBoard, Color, Offset, Piece, PieceIndex, Square};
 
 #[repr(u8)]
 #[derive(IntoPrimitive, TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,8 +107,8 @@ impl AttackGenerator {
 }
 
 mod data {
-    use crate::game::{
-        attacks::Direction, common, ArrayMap, BitBoard, Color, File, Offset, Rank, Square,
+    use crate::{
+        attacks::Direction, common, utils::ArrayMap, BitBoard, Color, File, Offset, Rank, Square,
     };
 
     use lazy_static::lazy_static;
@@ -542,7 +544,7 @@ mod data {
 mod test {
 
     use super::AttackGenerator;
-    use crate::game::{BitBoard, Color, Square};
+    use crate::{BitBoard, Color, Square};
 
     #[test]
     fn test_knight_attacks() {

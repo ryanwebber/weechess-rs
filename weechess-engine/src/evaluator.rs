@@ -3,7 +3,9 @@ use std::{
     ops::{Add, AddAssign, Mul, Neg},
 };
 
-use crate::game::{self, ArrayMap, Color, Piece, PieceIndex};
+use weechess_core::{
+    utils::ArrayMap, Color, MoveGenerationBuffer, MoveGenerator, Piece, PieceIndex, State,
+};
 
 pub const PIECE_WORTHS: ArrayMap<Piece, i32> = ArrayMap::new([
     0,   // None
@@ -108,7 +110,7 @@ impl Evaluator {
         Evaluator
     }
 
-    pub fn estimate(&self, state: &game::State) -> Evaluation {
+    pub fn estimate(&self, state: &State) -> Evaluation {
         // Dumb estimate: add up piece worths
         let mut evaluation = Evaluation::EVEN;
         for color in Color::ALL {
@@ -129,9 +131,9 @@ impl Evaluator {
         evaluation
     }
 
-    pub fn evaluate(&self, state: &game::State) -> Evaluation {
-        let move_generator = game::MoveGenerator;
-        let mut move_buffer = game::MoveGenerationBuffer::new();
+    pub fn evaluate(&self, state: &State) -> Evaluation {
+        let move_generator = MoveGenerator;
+        let mut move_buffer = MoveGenerationBuffer::new();
         move_generator.compute_legal_moves_into(state, &mut move_buffer);
 
         if move_buffer.legal_moves.is_empty() && state.is_check() {
@@ -151,7 +153,7 @@ mod tests {
     #[test]
     fn test_empty() {
         let evaluator = Evaluator::new();
-        let game_state = game::State::default();
+        let game_state = State::default();
         assert_eq!(evaluator.evaluate(&game_state), Evaluation::EVEN);
     }
 }

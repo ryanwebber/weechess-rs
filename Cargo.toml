@@ -1,29 +1,12 @@
-[package]
-name = "weechess-rs"
+[workspace]
+resolver = "2"
+members = [
+    "weechess-cli",
+    "weechess-core",
+    "weechess-engine",
+]
+
+[workspace.package]
 authors = ["Ryan Webber"]
 version = "0.1.0"
 edition = "2021"
-
-[lib]
-name = "weechess"
-path = "src/lib.rs"
-
-[[bin]]
-name = "weechess"
-path = "src/bin/weechess.rs"
-
-[dependencies]
-anyhow = "1.0.75"
-bitvec = "1.0.1"
-clap = { version = "4.4.11", features = ["derive"] }
-colored = "2.1.0"
-console = "0.15.7"
-indoc = "2.0.4"
-lazy_static = "1.4.0"
-num_enum = "0.7.1"
-rand = "0.8.5"
-rand_chacha = "0.3.1"
-regex = "1.10.2"
-rustyline = "13.0.0"
-shlex = "1.2.0"
-urlencoding = "2.1.3"

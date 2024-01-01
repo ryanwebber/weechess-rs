@@ -1,6 +1,6 @@
-use crate::game::{BitBoard, File, Rank};
+use crate::{BitBoard, File, Rank};
 
-use super::{ArrayMap, Color, Side, Square};
+use super::{utils::ArrayMap, Color, Side, Square};
 
 pub const KING_ORIGINS: ArrayMap<Color, Square> = ArrayMap::new([Square::E1, Square::E8]);
 pub const CASTLE_DESTS: ArrayMap<Color, ArrayMap<Side, Square>> = ArrayMap::new([

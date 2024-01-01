@@ -1,6 +1,6 @@
 use rand::Rng;
 
-use crate::game::{self, ArrayMap, Color, Piece, PieceIndex, Square};
+use crate::{utils::ArrayMap, Color, Piece, PieceIndex, Square, State};
 
 pub type Hash = u64;
 
@@ -20,7 +20,7 @@ impl ZobristHasher {
         }
     }
 
-    pub fn hash(&self, state: &game::State) -> Hash {
+    pub fn hash(&self, state: &State) -> Hash {
         let mut hash = 0;
         for color in Color::ALL {
             for piece in Piece::ALL_INCLUDING_NONE {

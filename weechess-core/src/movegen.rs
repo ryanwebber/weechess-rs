@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::game::Offset;
+use crate::Offset;
 
 use super::{
     AttackGenerator, BitBoard, CastleRights, Color, Move, MoveResult, MoveSet, Piece, PieceIndex,

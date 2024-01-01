@@ -1,0 +1,16 @@
+[package]
+name = "weechess_engine"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "weechess_engine"
+doctest = false
+
+[dependencies]
+anyhow = "1.0.75"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+urlencoding = "2.1.3"
+weechess_core = { path = "../weechess-core" }

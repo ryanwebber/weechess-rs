@@ -3,8 +3,8 @@ use std::fmt::Display;
 use crate::notation::{self, Fen};
 
 use super::{
-    ArrayMap, Board, Color, File, Move, MoveGenerator, MoveQuery, MoveResult, Piece, PieceIndex,
-    Side, Square,
+    utils::ArrayMap, Board, Color, File, Move, MoveGenerator, MoveQuery, MoveResult, Piece,
+    PieceIndex, Side, Square,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,7 +284,7 @@ impl State {
 impl Default for State {
     fn default() -> Self {
         let str = notation::Fen::DEFAULT;
-        notation::try_parse::<_, Fen>(str).unwrap()
+        notation::try_from_notation::<_, Fen>(str).unwrap()
     }
 }
 

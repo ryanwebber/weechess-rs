@@ -2,20 +2,21 @@ use std::{borrow::Cow, fmt::Display, marker::PhantomData, ops::Deref};
 
 pub use fen::*;
 pub use peg::*;
+pub use san::*;
 
-pub trait NotationFormat<Value>: Sized
-where
-    Value: Sized + Clone,
-{
-    fn fmt(value: &Value, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn try_parse(notation: &str) -> Result<Notation<'_, Value, Self>, ()>;
+pub trait IntoNotation<Value> {
+    fn into_notation(value: &Value, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+}
+
+pub trait TryFromNotation<Value> {
+    type Error;
+    fn try_from_notation(notation: &str) -> Result<Value, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Notation<'a, T, F>
 where
     T: Sized + Clone,
-    F: NotationFormat<T>,
 {
     value: Cow<'a, T>,
     _marker: PhantomData<F>,
@@ -24,7 +25,6 @@ where
 impl<T, F> Deref for Notation<'_, T, F>
 where
     T: Sized + Clone,
-    F: NotationFormat<T>,
 {
     type Target = T;
 
@@ -36,17 +36,16 @@ where
 impl<T, F> Display for Notation<'_, T, F>
 where
     T: Sized + Clone,
-    F: NotationFormat<T>,
+    F: IntoNotation<T>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        F::fmt(self, f)
+        F::into_notation(self, f)
     }
 }
 
 impl<'a, F, T> From<T> for Notation<'a, T, F>
 where
     T: Sized + Clone,
-    F: NotationFormat<T>,
 {
     fn from(value: T) -> Self {
         Self {
@@ -56,18 +55,18 @@ where
     }
 }
 
-pub fn try_parse<T, F>(s: &str) -> Result<T, ()>
+pub fn try_from_notation<T, F>(s: &str) -> Result<T, ()>
 where
     T: Sized + Clone,
-    F: NotationFormat<T>,
+    F: TryFromNotation<T>,
 {
-    F::try_parse(s).map(|n| n.value.into_owned())
+    F::try_from_notation(s).map_err(|_| ())
 }
 
-pub fn as_notation<T, F>(value: &T) -> Notation<'_, T, F>
+pub fn into_notation<T, F>(value: &T) -> Notation<'_, T, F>
 where
     T: Sized + Clone,
-    F: NotationFormat<T>,
+    F: IntoNotation<T>,
 {
     Notation {
         value: Cow::Borrowed(value),
@@ -77,12 +76,12 @@ where
 
 mod peg {
     use super::*;
-    use crate::game::{self, Piece, Side};
+    use crate::{Move, Piece, Side};
 
     pub struct Peg;
 
-    impl NotationFormat<game::Move> for Peg {
-        fn fmt(value: &game::Move, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl IntoNotation<Move> for Peg {
+        fn into_notation(value: &Move, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             if value.is_any_castle() {
                 write!(f, "O-O")?;
                 if value.is_castle(Side::Queen) {
@@ -111,17 +110,14 @@ mod peg {
 
             Ok(())
         }
-
-        fn try_parse(_notation: &str) -> Result<Notation<'_, game::Move, Self>, ()> {
-            todo!()
-        }
     }
 }
 
 mod fen {
     use super::*;
-    use crate::game::{
-        self, ArrayMap, Board, CastleRights, Clock, Color, File, Piece, PieceIndex, Rank, Square,
+    use crate::{
+        utils::ArrayMap, Board, CastleRights, Clock, Color, File, Piece, PieceIndex, Rank, Square,
+        State,
     };
 
     use regex::Regex;
@@ -135,8 +131,8 @@ mod fen {
             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     }
 
-    impl NotationFormat<game::State> for Fen {
-        fn fmt(value: &game::State, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl IntoNotation<State> for Fen {
+        fn into_notation(value: &State, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             {
                 // Write the board.
                 let pieces = ArrayMap::from(value.board());
@@ -228,8 +224,12 @@ mod fen {
 
             Ok(())
         }
+    }
 
-        fn try_parse(notation: &str) -> Result<Notation<'_, game::State, Self>, ()> {
+    impl TryFromNotation<State> for Fen {
+        type Error = ();
+
+        fn try_from_notation(notation: &str) -> Result<State, Self::Error> {
             let re = Regex::new(FEN_REGEX).unwrap();
             let groups = re.captures(notation).ok_or(())?;
 
@@ -256,10 +256,13 @@ mod fen {
                 fullmove_number: groups[8].parse().map_err(|_| ())?,
             };
 
-            Ok(
-                game::State::new(board, turn_to_move, castle_rights, en_passant_target, clock)
-                    .into(),
-            )
+            Ok(State::new(
+                board,
+                turn_to_move,
+                castle_rights,
+                en_passant_target,
+                clock,
+            ))
         }
     }
 
@@ -353,7 +356,7 @@ mod fen {
         #[test]
         fn test_default_fen() {
             let fen = Fen::DEFAULT;
-            let state = try_parse::<game::State, Fen>(fen).unwrap();
+            let state = try_from_notation::<State, Fen>(fen).unwrap();
             let board = state.board();
 
             assert_eq!(
@@ -381,9 +384,25 @@ mod fen {
         #[test]
         fn test_round_trip() {
             let fen1 = Fen::DEFAULT;
-            let state = Fen::try_parse(fen1).unwrap();
-            let fen2 = state.to_string();
+            let state = try_from_notation::<_, Fen>(fen1).unwrap();
+            let fen2 = into_notation::<_, Fen>(&state).to_string();
             assert_eq!(fen1, fen2);
+        }
+    }
+}
+
+mod san {
+    use crate::MoveQuery;
+
+    use super::TryFromNotation;
+
+    pub struct San;
+
+    impl TryFromNotation<MoveQuery> for San {
+        type Error = ();
+
+        fn try_from_notation(notation: &str) -> Result<MoveQuery, Self::Error> {
+            todo!()
         }
     }
 }

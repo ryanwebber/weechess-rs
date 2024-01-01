@@ -1,0 +1,19 @@
+[package]
+name = "weechess_core"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "weechess_core"
+doctest = false
+
+[dependencies]
+anyhow = "1.0.75"
+bitvec = "1.0.1"
+lazy_static = "1.4.0"
+num_enum = "0.7.1"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+regex = "1.10.2"
+serde = { version = "1.0.193", features = ["derive"] }

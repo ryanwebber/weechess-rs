@@ -7,13 +7,11 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use weechess::{
-    evaluator,
-    game::{self},
-    notation::{as_notation, try_parse, Fen, Peg},
-    printer, searcher, uci,
-    version::EngineVersion,
+use weechess_core::{
+    notation::{into_notation, try_from_notation, Fen, Peg},
+    State,
 };
+use weechess_engine::{evaluator, printer, searcher, uci, version::EngineVersion};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -73,9 +71,9 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Display { fen }) => {
             let game_state = {
                 if let Some(fen) = &fen {
-                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
+                    try_from_notation::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
-                    game::State::default()
+                    State::default()
                 }
             };
 
@@ -90,9 +88,9 @@ fn run() -> Result<(), anyhow::Error> {
         }) => {
             let game_state = {
                 if let Some(fen) = &fen {
-                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
+                    try_from_notation::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
-                    game::State::default()
+                    State::default()
                 }
             };
 
@@ -129,9 +127,9 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Perft { fen, depth }) => {
             let game_state = {
                 if let Some(fen) = &fen {
-                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
+                    try_from_notation::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
-                    game::State::default()
+                    State::default()
                 }
             };
 
@@ -140,9 +138,9 @@ fn run() -> Result<(), anyhow::Error> {
                 if depth == 1 {
                     println!(
                         "{}: {} [{}]",
-                        as_notation::<_, Peg>(mv),
+                        into_notation::<_, Peg>(mv),
                         count,
-                        as_notation::<_, Fen>(gs)
+                        into_notation::<_, Fen>(gs)
                     );
                 }
             });
@@ -154,9 +152,9 @@ fn run() -> Result<(), anyhow::Error> {
         Some(Commands::Repl { fen }) => {
             let mut game_state = {
                 if let Some(fen) = &fen {
-                    try_parse::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
+                    try_from_notation::<_, Fen>(fen).map_err(|_| anyhow::anyhow!("Invalid fen"))?
                 } else {
-                    game::State::default()
+                    State::default()
                 }
             };
 
@@ -209,7 +207,7 @@ fn run() -> Result<(), anyhow::Error> {
                         tx.send(()).unwrap();
                         outer_handle.join().unwrap();
                     }
-                    Some(repl::Commands::Load { fen }) => match try_parse::<_, Fen>(&fen) {
+                    Some(repl::Commands::Load { fen }) => match try_from_notation::<_, Fen>(&fen) {
                         Ok(gs) => {
                             game_state = gs;
                             println!("{}", printer::GamePrinter::new(&game_state));
@@ -248,17 +246,15 @@ fn main() {
 
 mod common {
     use colored::Colorize;
-    use weechess::{
-        notation::{as_notation, Peg},
-        searcher,
-    };
+    use weechess_core::notation::{into_notation, Peg};
+    use weechess_engine::searcher;
 
     pub fn print_search_event(event: searcher::StatusEvent) {
         match event {
             searcher::StatusEvent::BestMove { line, evaluation } => {
                 let line = line
                     .iter()
-                    .map(|m| as_notation::<_, Peg>(m).to_string())
+                    .map(|m| into_notation::<_, Peg>(m).to_string())
                     .collect::<Vec<_>>()
                     .join(" ");
 

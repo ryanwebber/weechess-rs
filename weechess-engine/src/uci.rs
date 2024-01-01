@@ -4,18 +4,22 @@ use std::{
     thread,
 };
 
-use rand::Rng;
-
 use crate::{
     evaluator::Evaluator,
-    game::{self, MoveQuery, Square},
-    notation::{try_parse, Fen},
     printer::GamePrinter,
     searcher::{self, Searcher},
     version::EngineVersion,
 };
 
+use rand::Rng;
+use weechess_core::{
+    notation::{try_from_notation, Fen},
+    Move, MoveQuery, Piece, Square, State,
+};
+
 const MAX_SEARCH_TIME: f64 = 4.0;
+
+// Reference: https://gist.github.com/DOBRO/2592c6dad754ba67e6dcaec8c90165bf
 
 pub struct Client;
 
@@ -27,7 +31,7 @@ impl Client {
     pub fn exec(&self) -> std::io::Result<()> {
         let mut input = stdin().lock().lines();
         let mut current_search: Option<Search> = None;
-        let mut current_position: game::State = game::State::default();
+        let mut current_position: State = State::default();
         let mut rng = rand::thread_rng();
         while let Some(Ok(cmd)) = input.next() {
             let parts: Vec<&str> = cmd.split_ascii_whitespace().collect();
@@ -56,11 +60,11 @@ impl Client {
                         // Parse the position string
                         match pos.first() {
                             Some(&"startpos") => {
-                                current_position = game::State::default();
+                                current_position = State::default();
                             }
                             Some(&"fen") => {
                                 let fen = pos[1..].join(" ");
-                                match try_parse::<game::State, Fen>(&fen) {
+                                match try_from_notation::<State, Fen>(&fen) {
                                     Ok(state) => {
                                         current_position = state;
                                     }
@@ -86,10 +90,10 @@ impl Client {
                                 let destination = Square::try_from(&m[2..4]).ok()?;
                                 let promotion = if let Some(p) = m.chars().nth(4) {
                                     match p {
-                                        'q' => Some(game::Piece::Queen),
-                                        'r' => Some(game::Piece::Rook),
-                                        'b' => Some(game::Piece::Bishop),
-                                        'n' => Some(game::Piece::Knight),
+                                        'q' => Some(Piece::Queen),
+                                        'r' => Some(Piece::Rook),
+                                        'b' => Some(Piece::Bishop),
+                                        'n' => Some(Piece::Knight),
                                         _ => return None,
                                     }
                                 } else {
@@ -109,7 +113,7 @@ impl Client {
                             continue;
                         }
 
-                        match game::State::by_performing_moves(&current_position, &move_details) {
+                        match State::by_performing_moves(&current_position, &move_details) {
                             Ok(state) => {
                                 current_position = state;
                             }
@@ -171,7 +175,7 @@ struct Search {
 }
 
 impl Search {
-    pub fn spawn(state: game::State, rng_seed: u64, depth: Option<usize>) -> Self {
+    pub fn spawn(state: State, rng_seed: u64, depth: Option<usize>) -> Self {
         let searcher = Searcher::new();
         let evaluator = Evaluator::new();
         let start_time = std::time::Instant::now();
@@ -192,7 +196,7 @@ impl Search {
         }
 
         let write_handle = thread::spawn(move || {
-            let mut best_line: Vec<game::Move> = vec![];
+            let mut best_line: Vec<Move> = vec![];
             while let Ok(event) = receiver.recv() {
                 match event {
                     searcher::StatusEvent::BestMove { line, evaluation } => {

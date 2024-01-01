@@ -1,0 +1,20 @@
+[package]
+name = "weechess_cli"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "weechess"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.75"
+clap = { version = "4.4.11", features = ["derive"] }
+colored = "2.1.0"
+console = "0.15.7"
+rand = "0.8.5"
+rustyline = "13.0.0"
+shlex = "1.2.0"
+weechess_core = { path = "../weechess-core" }
+weechess_engine = { path = "../weechess-engine" }

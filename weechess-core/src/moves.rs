@@ -1,3 +1,6 @@
+use bitvec::field::BitField;
+use serde::{Deserialize, Serialize};
+
 use self::compact::BitSetExt;
 
 use super::{common, Color, Piece, PieceIndex, Side, Square, State};
@@ -155,6 +158,27 @@ impl Move {
     }
 }
 
+impl Serialize for Move {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u32(self.0.load_le())
+    }
+}
+
+impl<'de> Deserialize<'de> for Move {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw_value = u32::deserialize(deserializer)?;
+        let mut bits = compact::BitSet::ZERO;
+        bits.store_le(raw_value);
+        Ok(Self(bits))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MoveResult(pub Move, pub State);
 
@@ -201,7 +225,7 @@ mod compact {
     use bitvec::field::BitField;
     use num_enum::TryFromPrimitive;
 
-    use crate::game::{Piece, Square};
+    use crate::{Piece, Square};
 
     pub type BitSet = bitvec::BitArr!(for 32);
 
@@ -351,7 +375,7 @@ mod compact {
 
 #[cfg(test)]
 mod test {
-    use crate::game::{Color, Piece, PieceIndex, Square};
+    use crate::{Color, Piece, PieceIndex, Square};
 
     use super::Move;
 
@@ -378,7 +402,7 @@ mod test {
 
     #[test]
     fn test_castle_move() {
-        let m = Move::by_castling(Color::White, crate::game::Side::Queen);
+        let m = Move::by_castling(Color::White, crate::Side::Queen);
 
         assert_eq!(m.origin(), Square::E1);
         assert_eq!(m.destination(), Square::C1);
@@ -391,8 +415,8 @@ mod test {
         assert!(!m.is_en_passant());
         assert!(!m.is_double_pawn());
         assert!(m.is_any_castle());
-        assert!(m.is_castle(crate::game::Side::Queen));
-        assert!(!m.is_castle(crate::game::Side::King));
+        assert!(m.is_castle(crate::Side::Queen));
+        assert!(!m.is_castle(crate::Side::King));
     }
 
     #[test]

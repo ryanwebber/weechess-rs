@@ -1,8 +1,8 @@
 use std::{borrow::Cow, fmt::Display};
 
-use crate::{
-    game::{self, ArrayMap, Color, File, Piece, PieceIndex, Rank, Square},
-    notation::{as_notation, Fen},
+use weechess_core::{
+    notation::{into_notation, Fen},
+    {utils::ArrayMap, Color, File, Piece, PieceIndex, Rank, Square, State},
 };
 
 const BOARD_TEMPLATE_ROWS: &'static [&'static str] = &[
@@ -28,11 +28,11 @@ const BOARD_TEMPLATE_ROWS: &'static [&'static str] = &[
 ];
 
 pub struct GamePrinter<'a> {
-    pub game: Cow<'a, game::State>,
+    pub game: Cow<'a, State>,
 }
 
 impl<'a> GamePrinter<'a> {
-    pub fn new(game: &'a game::State) -> Self {
+    pub fn new(game: &'a State) -> Self {
         Self {
             game: Cow::Borrowed(game),
         }
@@ -41,7 +41,7 @@ impl<'a> GamePrinter<'a> {
 
 impl<'a, T> From<T> for GamePrinter<'a>
 where
-    T: Into<Cow<'a, game::State>>,
+    T: Into<Cow<'a, State>>,
 {
     fn from(value: T) -> Self {
         Self { game: value.into() }
@@ -53,7 +53,7 @@ impl Display for GamePrinter<'_> {
         let pieces: ArrayMap<Square, PieceIndex> = self.game.board().into();
 
         write!(f, "\n")?;
-        write!(f, " {}\n\n", as_notation::<_, Fen>(&self.game))?;
+        write!(f, " {}\n\n", into_notation::<_, Fen>(&self.game))?;
 
         let mut square_index = 0;
         let mut rank_index = 0;
@@ -143,7 +143,7 @@ impl Display for GamePrinter<'_> {
         write!(
             f,
             "\n\nhttps://lichess.org/editor?fen={}&variant=standard&color={}\n\n",
-            urlencoding::encode(&as_notation::<_, Fen>(&self.game).to_string()),
+            urlencoding::encode(&into_notation::<_, Fen>(&self.game).to_string()),
             match self.game.turn_to_move() {
                 Color::White => "white",
                 Color::Black => "black",

@@ -2,7 +2,7 @@ use std::{fmt::Display, ops::Deref};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 
-use super::{utils, ArrayKey, Color};
+use super::{utils, utils::ArrayKey, Color};
 
 #[repr(u8)]
 #[derive(IntoPrimitive, TryFromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]

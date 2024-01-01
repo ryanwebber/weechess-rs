@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    book::OpeningBook,
     evaluator::Evaluator,
     searcher::{self, Searcher},
     version::EngineVersion,
@@ -24,7 +25,6 @@ pub struct Client;
 
 impl Client {
     pub fn new() -> Self {
-        println!("Hello world");
         Self
     }
 
@@ -33,12 +33,30 @@ impl Client {
         let mut current_search: Option<Search> = None;
         let mut current_position: State = State::default();
         let mut rng = rand::thread_rng();
+        let book = OpeningBook::try_default().unwrap();
         while let Some(Ok(cmd)) = input.next() {
             let parts: Vec<&str> = cmd.split_ascii_whitespace().collect();
             match parts.split_first() {
                 Some((&"go", _)) => {
                     if let Some(search) = current_search.take() {
                         search.wait_cancel();
+                    }
+
+                    // TODO: Do we always want to pick a book move?
+                    if let Some(moves) = book.lookup(&current_position) {
+                        let moves = moves.iter().collect::<Vec<_>>();
+                        let m = moves[rng.gen_range(0..moves.len())];
+                        println!("info string book move: {}", m);
+                        println!("bestmove {}{}{}", m.origin(), m.destination(), {
+                            if let Some(p) = m.promotion() {
+                                let c: char = p.into();
+                                String::from(c.to_ascii_lowercase())
+                            } else {
+                                String::from("")
+                            }
+                        });
+
+                        continue;
                     }
 
                     let search = Search::spawn(current_position.clone(), rng.gen(), None);

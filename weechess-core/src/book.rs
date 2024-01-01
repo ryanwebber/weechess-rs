@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ use crate::{
 
 #[derive(Serialize, Deserialize)]
 pub struct Book {
-    table: BTreeMap<hasher::Hash, Vec<Move>>,
+    table: BTreeMap<hasher::Hash, HashSet<Move>>,
 }
 
 impl Book {
@@ -24,19 +24,19 @@ impl Book {
         self.table.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&hasher::Hash, &[Move])> {
-        self.table.iter().map(|(hash, moves)| (hash, &moves[..]))
+    pub fn iter(&self) -> impl Iterator<Item = (&hasher::Hash, &HashSet<Move>)> {
+        self.table.iter()
     }
 
-    pub fn find(&self, hash: hasher::Hash) -> Option<&[Move]> {
-        self.table.get(&hash).map(|moves| &moves[..])
+    pub fn find(&self, hash: hasher::Hash) -> Option<&HashSet<Move>> {
+        self.table.get(&hash)
     }
 
     pub fn append(&mut self, hash: hasher::Hash, moves: &[Move]) {
         self.table
             .entry(hash)
-            .or_insert_with(Vec::new)
-            .extend_from_slice(moves);
+            .or_insert_with(HashSet::new)
+            .extend(moves);
     }
 }
 

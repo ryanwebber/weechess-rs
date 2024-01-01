@@ -187,7 +187,7 @@ impl Display for MoveQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct Move(compact::BitSet);
 
 impl Move {

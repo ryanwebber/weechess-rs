@@ -6,10 +6,13 @@ use weechess_core::{Book, BookParseError, BookParser};
 
 const BOOK_DEPTH: usize = 10;
 const BOOK_SEED_ENV_VAR: &'static str = "WEECHESS_BOOK_SEED";
+const BOOK_DATA_FILE_NAME: &'static str = "book_data.bin";
 
 #[derive(Debug)]
 enum BuildError {
     BookParsing(BookParseError),
+    Io(std::io::Error),
+    Serialization(ciborium::ser::Error<std::io::Error>),
 }
 
 fn generate_book_data() -> Result<(), BuildError> {
@@ -31,10 +34,10 @@ fn generate_book_data() -> Result<(), BuildError> {
     });
 
     for entry in fs::read_dir(book_dir).unwrap() {
-        let entry = entry.unwrap();
+        let entry = entry.map_err(|e| BuildError::Io(e))?;
         if entry.file_type().unwrap().is_file() {
             println!("cargo:rerun-if-changed={}", entry.path().display());
-            let book_contents = fs::read_to_string(entry.path()).unwrap();
+            let book_contents = fs::read_to_string(entry.path()).map_err(|e| BuildError::Io(e))?;
             book = book_contents
                 .trim()
                 .split("\n\n")
@@ -54,11 +57,20 @@ fn generate_book_data() -> Result<(), BuildError> {
         }
     }
 
-    println!("Book size: {}", book.len());
+    assert!(book.len() > 0);
+
+    // Serialize the book data
+    let mut buf = Vec::new();
+    ciborium::into_writer(&book, &mut buf).map_err(|e| BuildError::Serialization(e))?;
+
+    // Write the book data to a file
+    let book_data_path = Path::new(&std::env::var("OUT_DIR").unwrap()).join(BOOK_DATA_FILE_NAME);
+    std::fs::write(book_data_path, buf).map_err(|e| BuildError::Io(e))?;
 
     Ok(())
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
     generate_book_data().unwrap();
 }

@@ -381,6 +381,14 @@ impl Square {
             Some(Self::from((Rank(rank as u8), File(file as u8))))
         }
     }
+
+    pub fn flip_rank(self) -> Self {
+        Self::from((self.file(), self.rank().opposing_rank()))
+    }
+
+    pub fn white_at_bottom_index(self) -> u8 {
+        self.flip_rank().0
+    }
 }
 
 impl Display for Square {

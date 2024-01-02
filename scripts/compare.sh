@@ -2,9 +2,9 @@
 
 set -e
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+SCRIPT_DIR=$(dirname $(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd))
 
-ENGINE_CTRL_PATH="${SCRIPT_DIR}/versions/weechess.001-ranger.exe"
+ENGINE_CTRL_PATH="${SCRIPT_DIR}/versions/weechess.002-daisy.exe"
 ENGINE_CTRL_NAME="$(${ENGINE_CTRL_PATH} version)"
 ENGINE_CTRL_ARGS="uci"
 

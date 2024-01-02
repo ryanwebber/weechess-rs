@@ -50,6 +50,10 @@ where
             _marker: PhantomData,
         }
     }
+
+    pub fn index<J: Into<usize>>(&self, index: J) -> &T {
+        &self.array[index.into()]
+    }
 }
 
 impl<I, T> ArrayMap<I, T>

@@ -218,7 +218,7 @@ impl Searcher {
 
         // Don't bother searching further, this is checkmate or stalemate
         if buffer.legal_moves.is_empty() {
-            return Ok(evaluator.evaluate(game_state));
+            return Ok(evaluator.evaluate(game_state, game_state.turn_to_move()));
         }
 
         // Shuffle the moves so we don't always search the same moves first
@@ -231,7 +231,7 @@ impl Searcher {
             .legal_moves
             .sort_by_cached_key(|MoveResult(_, new_state)| {
                 // Estimate is faster than evaluate for this purpose
-                evaluator.estimate(new_state)
+                evaluator.estimate(new_state, new_state.turn_to_move())
             });
 
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations
@@ -298,7 +298,7 @@ impl Searcher {
         _alpha: evaluator::Evaluation,
         _beta: evaluator::Evaluation,
     ) -> Result<evaluator::Evaluation, SearchInterrupt> {
-        Ok(evaluator.evaluate(game_state))
+        Ok(evaluator.evaluate(game_state, game_state.turn_to_move()))
     }
 
     pub fn perft<F>(&self, state: &State, depth: usize, mut f: F) -> usize

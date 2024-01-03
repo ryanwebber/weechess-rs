@@ -28,7 +28,7 @@ pub fn evaluate(v: &StateVariation<'_>, perspective: &Color, eval: &mut Evaluati
     };
 
     let kings_distance = our_king_location.manhattan_distance_to(their_king_location) as i32;
-    let their_king_to_edge_distance = {
+    let their_king_displacement_from_center = {
         let rank_distance = u8::min(
             their_king_location.rank().abs_distance_to(Rank::ONE),
             their_king_location.rank().abs_distance_to(Rank::EIGHT),
@@ -39,10 +39,10 @@ pub fn evaluate(v: &StateVariation<'_>, perspective: &Color, eval: &mut Evaluati
             their_king_location.file().abs_distance_to(File::H),
         ) as i32;
 
-        rank_distance + file_distance
+        6 - (rank_distance + file_distance)
     };
 
-    let absolute_eval = (10 * their_king_to_edge_distance) - kings_distance;
+    let absolute_eval = (10 * their_king_displacement_from_center) - kings_distance;
     *eval += Evaluation(absolute_eval) * v.end_game_weight;
 }
 
@@ -64,6 +64,6 @@ mod tests {
         let mut e2 = Evaluation::EVEN;
         super::evaluate(&s2, &Color::White, &mut e2, &mut false);
 
-        assert!(e1 > e2);
+        assert!(e2 > e1);
     }
 }

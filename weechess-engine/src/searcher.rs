@@ -10,7 +10,7 @@ use rand::{seq::SliceRandom, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use weechess_core::{Move, MoveGenerationBuffer, MoveGenerator, MoveResult, State, ZobristHasher};
 
-use crate::evaluator;
+use crate::eval;
 
 type RandomNumberGenerator = ChaCha8Rng;
 
@@ -18,10 +18,11 @@ type RandomNumberGenerator = ChaCha8Rng;
 pub enum StatusEvent {
     BestMove {
         line: Vec<Move>,
-        evaluation: evaluator::Evaluation,
+        evaluation: eval::Evaluation,
     },
     Progress {
         depth: u32,
+        nodes_searched: usize,
         transposition_saturation: f32,
     },
 }
@@ -41,7 +42,7 @@ impl Searcher {
         &self,
         state: State,
         rng_seed: u64,
-        evaluator: evaluator::Evaluator,
+        evaluator: eval::Evaluator,
         max_depth: Option<usize>,
     ) -> (
         thread::JoinHandle<()>,
@@ -93,7 +94,7 @@ impl Searcher {
 
     fn analyze_iterative<F>(
         game_state: State,
-        evaluator: &evaluator::Evaluator,
+        evaluator: &eval::Evaluator,
         rng: RandomNumberGenerator,
         max_depth: Option<usize>,
         token: CancellationToken,
@@ -106,26 +107,29 @@ impl Searcher {
         let mut transpositions =
             TranspositionTable::with_memory(1024 * 1024 * 256, ZobristHasher::with(&mut rng));
 
+        let mut nodes_searched = 0;
         let mut move_buffer = MoveGenerationBuffer::new();
 
         for depth in 0..max_depth {
-            let mut best_eval = evaluator::Evaluation::NEG_INF;
+            let mut best_eval = eval::Evaluation::NEG_INF;
 
             match Self::analyze_recursive(
                 &game_state,
                 evaluator,
+                &token,
                 &mut rng,
                 &mut transpositions,
+                &mut move_buffer,
+                &mut nodes_searched,
                 depth + 1,
                 0,
-                evaluator::Evaluation::NEG_INF,
-                evaluator::Evaluation::POS_INF,
-                &token,
-                &mut move_buffer,
+                eval::Evaluation::NEG_INF,
+                eval::Evaluation::POS_INF,
             ) {
                 Ok(e) => {
                     f(StatusEvent::Progress {
                         depth: depth as u32,
+                        nodes_searched,
                         transposition_saturation: transpositions.saturation(),
                     });
 
@@ -158,16 +162,20 @@ impl Searcher {
 
     fn analyze_recursive(
         game_state: &State,
-        evaluator: &evaluator::Evaluator,
+        evaluator: &eval::Evaluator,
+        token: &CancellationToken,
         rng: &mut ChaCha8Rng,
         transpositions: &mut TranspositionTable,
+        buffer: &mut MoveGenerationBuffer,
+        nodes_searched: &mut usize,
         max_depth: usize,
         current_depth: usize,
-        mut alpha: evaluator::Evaluation,
-        mut beta: evaluator::Evaluation,
-        token: &CancellationToken,
-        buffer: &mut MoveGenerationBuffer,
-    ) -> Result<evaluator::Evaluation, SearchInterrupt> {
+        alpha: eval::Evaluation,
+        beta: eval::Evaluation,
+    ) -> Result<eval::Evaluation, SearchInterrupt> {
+        // We've searched another node
+        *nodes_searched += 1;
+
         // To avoid spending a lot of time waiting for atomic operations,
         // let's avoid checking the cancellation token in the lower leaf nodes
         if current_depth + 2 < max_depth {
@@ -175,6 +183,9 @@ impl Searcher {
                 return Err(SearchInterrupt);
             }
         }
+
+        let mut alpha = alpha;
+        let mut beta = beta;
 
         // First thing to do is check the transposition table to see if we've
         // searched this position to a greater depth than we're about to search now
@@ -241,14 +252,15 @@ impl Searcher {
             let evaluation = -Self::analyze_recursive(
                 new_state,
                 evaluator,
+                token,
                 rng,
                 transpositions,
+                &mut next_buffer,
+                nodes_searched,
                 max_depth,
                 current_depth + 1,
                 -beta,
                 -alpha,
-                token,
-                &mut next_buffer,
             )?;
 
             // This move is too good for the opponent, so they will never allow us to reach
@@ -294,10 +306,10 @@ impl Searcher {
 
     fn quiescence_search(
         game_state: &State,
-        evaluator: &evaluator::Evaluator,
-        _alpha: evaluator::Evaluation,
-        _beta: evaluator::Evaluation,
-    ) -> Result<evaluator::Evaluation, SearchInterrupt> {
+        evaluator: &eval::Evaluator,
+        _alpha: eval::Evaluation,
+        _beta: eval::Evaluation,
+    ) -> Result<eval::Evaluation, SearchInterrupt> {
         Ok(evaluator.evaluate(game_state, game_state.turn_to_move()))
     }
 
@@ -415,7 +427,7 @@ struct TranspositionEntry {
     performed_move: Move,
     depth: usize,
     max_depth: usize,
-    evaluation: evaluator::Evaluation,
+    evaluation: eval::Evaluation,
 }
 
 struct TranspositionTableMoveIterator<'a> {
@@ -484,7 +496,7 @@ mod tests {
     #[test]
     fn test_termination() {
         let searcher = Searcher::new();
-        let evaluator = evaluator::Evaluator::new();
+        let evaluator = eval::Evaluator::default();
         let state = State::default();
         let (handle, tx, _) = searcher.analyze(state, 0, evaluator, None);
         tx.send(ControlEvent::Stop).unwrap();
@@ -509,7 +521,7 @@ mod tests {
     #[test]
     fn test_find_forced_mate_in_3() {
         let searcher = Searcher::new();
-        let evaluator = evaluator::Evaluator::new();
+        let evaluator = eval::Evaluator::default();
         let state = notation::try_from_notation::<_, Fen>(
             "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1",
         )
@@ -540,6 +552,6 @@ mod tests {
 
         assert_eq!(best_move.0.origin(), Square::C4);
         assert_eq!(best_move.0.destination(), Square::B5);
-        assert!(best_move.1 >= evaluator::Evaluation::mate_in(3));
+        assert!(best_move.1 >= eval::Evaluation::mate_in(3));
     }
 }

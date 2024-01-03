@@ -2,5 +2,7 @@
 
 set -e
 
+mkdir -p versions
+
 cargo build --release
 cp target/release/weechess "versions/$(target/release/weechess version).exe"

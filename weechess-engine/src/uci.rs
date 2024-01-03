@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     book::OpeningBook,
-    evaluator::Evaluator,
+    eval::Evaluator,
     searcher::{self, Searcher},
     version::EngineVersion,
 };
@@ -198,7 +198,7 @@ struct Search {
 impl Search {
     pub fn spawn(state: State, rng_seed: u64, depth: Option<usize>) -> Self {
         let searcher = Searcher::new();
-        let evaluator = Evaluator::new();
+        let evaluator = Evaluator::default();
         let start_time = std::time::Instant::now();
         let (search_handle, control, receiver) =
             searcher.analyze(state, rng_seed, evaluator, depth);
@@ -241,8 +241,25 @@ impl Search {
 
                         best_line = line;
                     }
-                    searcher::StatusEvent::Progress { depth, .. } => {
-                        println!("info depth {}", depth);
+                    searcher::StatusEvent::Progress {
+                        depth,
+                        nodes_searched,
+                        ..
+                    } => {
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        let nps = if elapsed > 0.0 {
+                            nodes_searched as f64 / elapsed
+                        } else {
+                            0.0
+                        };
+
+                        println!(
+                            "info time {:.0} depth {} nps {:.0} nodes {}",
+                            elapsed * 1000f64,
+                            depth,
+                            nps,
+                            nodes_searched
+                        );
                     }
                 }
             }

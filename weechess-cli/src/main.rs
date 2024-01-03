@@ -11,7 +11,7 @@ use weechess_core::{
     notation::{into_notation, try_from_notation, Fen, Peg},
     State,
 };
-use weechess_engine::{evaluator, searcher, uci, version::EngineVersion};
+use weechess_engine::{eval, searcher, uci, version::EngineVersion};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -98,7 +98,7 @@ fn run() -> Result<(), anyhow::Error> {
 
             let outer_handle = thread::spawn(move || {
                 let searcher = searcher::Searcher::new();
-                let evaluator = evaluator::Evaluator::new();
+                let evaluator = eval::Evaluator::default();
                 let (search_handle, send, recv) =
                     searcher.analyze(game_state, rng_seed, evaluator, max_depth);
 
@@ -173,7 +173,7 @@ fn run() -> Result<(), anyhow::Error> {
                             println!("Evaluating positions (press enter to stop)...\n");
                             let rx = rx;
                             let searcher = searcher::Searcher::new();
-                            let evaluator = evaluator::Evaluator::new();
+                            let evaluator = eval::Evaluator::default();
                             let rng_seed = seed.unwrap_or_else(rand::random);
                             let (search_handle, send, recv) = searcher.analyze(
                                 evaluated_game_state,
@@ -268,11 +268,13 @@ mod common {
             }
             searcher::StatusEvent::Progress {
                 depth,
+                nodes_searched,
                 transposition_saturation,
             } => {
                 let f = format!(
-                    "depth={} tts={:.6}%",
+                    "depth={} nodes={} tts={:.6}%",
                     depth,
+                    nodes_searched,
                     transposition_saturation * 100.0
                 );
                 println!("{}  {} {}", "Progress".dimmed(), "|".dimmed(), f.dimmed());

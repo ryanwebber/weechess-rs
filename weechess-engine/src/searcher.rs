@@ -304,13 +304,57 @@ impl Searcher {
         Ok(alpha)
     }
 
+    /*
+        Performs a recursive search by only looking at captures. Once the position is 'quiet'
+        then we evaluate it and return the evaluation.
+    */
     fn quiescence_search(
         game_state: &State,
         evaluator: &eval::Evaluator,
-        _alpha: eval::Evaluation,
-        _beta: eval::Evaluation,
+        alpha: eval::Evaluation,
+        beta: eval::Evaluation,
     ) -> Result<eval::Evaluation, SearchInterrupt> {
-        Ok(evaluator.evaluate(game_state, game_state.turn_to_move()))
+        let mut buffer = MoveGenerationBuffer::new();
+        MoveGenerator.compute_legal_moves_into(&game_state, &mut buffer);
+
+        // Don't bother searching further, this is checkmate or stalemate
+        if buffer.legal_moves.is_empty() {
+            return Ok(evaluator.evaluate(game_state, game_state.turn_to_move()));
+        }
+
+        let is_quiet = buffer.legal_moves.iter().all(|m| !m.0.is_capture());
+        let normal_eval = evaluator.evaluate(game_state, game_state.turn_to_move());
+
+        let mut alpha = alpha;
+
+        if is_quiet {
+            return Ok(normal_eval);
+        }
+
+        if normal_eval >= beta {
+            return Ok(beta);
+        }
+
+        if alpha < normal_eval {
+            alpha = normal_eval;
+        }
+
+        for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
+            if !mv.is_capture() {
+                continue;
+            }
+
+            let evaluation = -Self::quiescence_search(new_state, evaluator, -beta, -alpha)?;
+            if evaluation >= beta {
+                return Ok(beta);
+            }
+
+            if evaluation > alpha {
+                alpha = evaluation;
+            }
+        }
+
+        Ok(alpha)
     }
 
     pub fn perft<F>(&self, state: &State, depth: usize, mut f: F) -> usize

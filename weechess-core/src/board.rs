@@ -88,6 +88,17 @@ impl File {
             Some(Self(index as u8))
         }
     }
+
+    pub fn opposing_file(self) -> Self {
+        debug_assert!(self.0 < 8);
+        Self(7 - self.0)
+    }
+
+    pub fn abs_distance_to(self, other: Self) -> u8 {
+        debug_assert!(self.0 < 8);
+        debug_assert!(other.0 < 8);
+        (self.0 as i8 - other.0 as i8).abs() as u8
+    }
 }
 
 impl Display for File {
@@ -388,6 +399,10 @@ impl Square {
 
     pub fn white_at_bottom_index(self) -> u8 {
         self.flip_rank().0
+    }
+
+    pub fn manhattan_distance_to(self, other: Self) -> u8 {
+        self.rank().abs_distance_to(other.rank()) + self.file().abs_distance_to(other.file())
     }
 }
 

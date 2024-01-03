@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Not};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 
@@ -33,6 +33,14 @@ impl Color {
             Self::White => Offset::SOUTH,
             Self::Black => Offset::NORTH,
         }
+    }
+}
+
+impl Not for Color {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        self.opposing_color()
     }
 }
 

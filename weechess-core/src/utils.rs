@@ -174,3 +174,12 @@ where
     T: Eq,
 {
 }
+
+#[macro_export]
+macro_rules! arraymap {
+    ($( $key: expr => $val: expr ),*$(,)?) => {{
+         let mut map = ArrayMap::default();
+         $( map[$key] = $val; )*
+         map
+    }}
+}

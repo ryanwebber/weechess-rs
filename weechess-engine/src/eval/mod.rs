@@ -23,7 +23,7 @@ const EVALUATORS: &'static [(f32, EvaluationFunction)] = &[
     (1.0, evaluate_piece_worths::evaluate),
     (0.8, evaluate_piece_squares::evaluate),
     (1.0, evaluate_force_king_to_edge::evaluate),
-    (1.0, evaluate_bad_pawns::evaluate),
+    (0.2, evaluate_bad_pawns::evaluate),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]

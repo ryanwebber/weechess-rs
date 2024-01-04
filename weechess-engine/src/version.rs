@@ -7,8 +7,8 @@ pub struct EngineVersion {
 
 impl EngineVersion {
     pub const CURRENT: EngineVersion = EngineVersion {
-        version: 4,
-        name: "eckart",
+        version: 5,
+        name: "jackal",
         author: env!("CARGO_PKG_AUTHORS"),
     };
 }

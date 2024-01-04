@@ -3,29 +3,34 @@ use weechess_core::{utils::ArrayMap, Color, Piece, PieceIndex, Square};
 use super::{Evaluation, StateVariation};
 
 pub fn evaluate(v: &StateVariation<'_>, perspective: &Color, eval: &mut Evaluation, _: &mut bool) {
-    *eval += {
-        let mut eval = 0.0;
-        for piece in Piece::ALL {
-            let piece_index = PieceIndex::new(*perspective, *piece);
-            let piece_occupancy = v.board().piece_occupancy(piece_index);
-            for square in piece_occupancy.iter_ones() {
-                let square = if *perspective == Color::White {
-                    Square::from(square)
-                } else {
-                    Square::from(square).flip_rank()
-                };
-
-                let index = square.white_at_bottom_index();
-                let e1 = *PIECE_SQUARE_MAP[*piece][0].index(index) as f32;
-                let e2 = *PIECE_SQUARE_MAP[*piece][1].index(index) as f32;
-
-                // Lerp between e1 and e2 by end_game_weight
-                eval += (e2 - e1) * v.end_game_weight + e1;
-            }
+    for piece in Piece::ALL {
+        let piece_index = PieceIndex::new(*perspective, *piece);
+        let piece_occupancy = v.board().piece_occupancy(piece_index);
+        for square in piece_occupancy.iter_ones() {
+            *eval +=
+                evaluate_piece_square(*piece, Square::from(square), perspective, v.end_game_weight)
         }
-
-        Evaluation(eval as i32)
     }
+}
+
+pub fn evaluate_piece_square(
+    piece: Piece,
+    square: Square,
+    perspective: &Color,
+    end_game_weight: f32,
+) -> Evaluation {
+    let square = if *perspective == Color::White {
+        Square::from(square)
+    } else {
+        Square::from(square).flip_rank()
+    };
+
+    let index = square.white_at_bottom_index();
+    let e1 = *PIECE_SQUARE_MAP[piece][0].index(index) as f32;
+    let e2 = *PIECE_SQUARE_MAP[piece][1].index(index) as f32;
+
+    // Lerp between e1 and e2 by end_game_weight
+    Evaluation(((e2 - e1) * end_game_weight + e1) as i32)
 }
 
 const PIECE_SQUARE_MAP: ArrayMap<Piece, [ArrayMap<Square, i32>; 2]> = ArrayMap::new([

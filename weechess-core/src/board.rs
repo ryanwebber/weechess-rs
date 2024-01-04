@@ -99,6 +99,22 @@ impl File {
         debug_assert!(other.0 < 8);
         (self.0 as i8 - other.0 as i8).abs() as u8
     }
+
+    pub fn left(self) -> Option<Self> {
+        if self.0 == 0 {
+            None
+        } else {
+            Some(Self(self.0 - 1))
+        }
+    }
+
+    pub fn right(self) -> Option<Self> {
+        if self.0 == 7 {
+            None
+        } else {
+            Some(Self(self.0 + 1))
+        }
+    }
 }
 
 impl Display for File {

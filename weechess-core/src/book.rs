@@ -85,8 +85,7 @@ impl BookParser {
                 State::default(),
                 |state, move_str| match try_from_notation::<_, San>(move_str) {
                     Ok(query) => {
-                        let move_generator = MoveGenerator;
-                        let valid_moves = move_generator.compute_legal_moves(state);
+                        let valid_moves = MoveGenerator::compute_legal_moves(state);
                         let Some(result) = valid_moves.find(&query) else {
                             println!("Unknown move '{}': {}", move_str, query);
                             println!("Game state:\n{}", state.pretty());

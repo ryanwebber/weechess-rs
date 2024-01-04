@@ -267,9 +267,8 @@ impl State {
         moves: &[MoveQuery],
     ) -> Result<State, MovePerformError> {
         let mut state = state.clone();
-        let move_generator = MoveGenerator;
         for mv in moves {
-            let move_set = move_generator.compute_legal_moves(&state);
+            let move_set = MoveGenerator::compute_legal_moves(&state);
             let valid_moves: Vec<&MoveResult> = move_set.filter(*mv).collect();
             match valid_moves[..] {
                 [mv] => {

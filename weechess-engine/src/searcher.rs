@@ -6,11 +6,13 @@ use std::{
     thread,
 };
 
-use rand::{seq::SliceRandom, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use weechess_core::{Move, MoveGenerationBuffer, MoveGenerator, MoveResult, State, ZobristHasher};
+use weechess_core::{
+    Move, MoveGenerationBuffer, MoveGenerator, MoveResult, PseudoLegalMove, State, ZobristHasher,
+};
 
-use crate::eval;
+use crate::eval::{self, Evaluation};
 
 type RandomNumberGenerator = ChaCha8Rng;
 
@@ -108,7 +110,7 @@ impl Searcher {
             TranspositionTable::with_memory(1024 * 1024 * 256, ZobristHasher::with(&mut rng));
 
         let mut nodes_searched = 0;
-        let mut move_buffer = MoveGenerationBuffer::new();
+        let mut move_buffer = Vec::new();
 
         for depth in 0..max_depth {
             let mut best_eval = eval::Evaluation::NEG_INF;
@@ -166,14 +168,14 @@ impl Searcher {
         token: &CancellationToken,
         rng: &mut ChaCha8Rng,
         transpositions: &mut TranspositionTable,
-        buffer: &mut MoveGenerationBuffer,
+        move_buffer: &mut Vec<PseudoLegalMove>,
         nodes_searched: &mut usize,
         max_depth: usize,
         current_depth: usize,
         alpha: eval::Evaluation,
         beta: eval::Evaluation,
     ) -> Result<eval::Evaluation, SearchInterrupt> {
-        // We've searched another node
+        // We're searching a new node here
         *nodes_searched += 1;
 
         // To avoid spending a lot of time waiting for atomic operations,
@@ -221,36 +223,42 @@ impl Searcher {
             return Self::quiescence_search(game_state, evaluator, alpha, beta);
         }
 
-        let move_generator = MoveGenerator;
         let mut evaluation_type = EvaluationKind::UpperBound;
         let mut best_move: Option<Move> = None;
 
-        move_generator.compute_legal_moves_into(game_state, buffer);
-
-        // Don't bother searching further, this is checkmate or stalemate
-        if buffer.legal_moves.is_empty() {
-            return Ok(evaluator.evaluate(game_state, game_state.turn_to_move()));
-        }
-
-        // Shuffle the moves so we don't always search the same moves first
-        buffer.legal_moves.shuffle(rng);
+        MoveGenerator::compute_psuedo_legal_moves_into(game_state, move_buffer);
 
         // Sort the moves by the estimated value of the resulting position
         // so that we can search the most promising moves first - this will
         // allow us to prune more branches early in alpha-beta search
-        buffer
-            .legal_moves
-            .sort_by_cached_key(|MoveResult(_, new_state)| {
-                // Estimate is faster than evaluate for this purpose
-                evaluator.estimate(new_state, new_state.turn_to_move())
-            });
+        move_buffer.sort_by_cached_key(|mv| {
+            // We don't have the resulting move position yet, so we can only
+            // evaluate the quality of the move at face value
+            let mut estimation = -evaluator.estimate(game_state, mv);
+
+            // Add a bit of jiggle to the estimation so that we don't always
+            // search the same moves first
+            estimation += Evaluation::from(rng.gen_range(-25..=25));
+
+            estimation
+        });
 
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations
-        let mut next_buffer = MoveGenerationBuffer::new();
+        let mut next_buffer = Vec::new();
 
-        for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
+        // Keep track of where we started this search
+        let previous_nodes_searched = *nodes_searched;
+
+        for pseudo_legal_move in move_buffer.iter() {
+            // First things first, let's make sure this is a legal move. This is expensive, so we
+            // have deferred it until now so that alpha-beta pruning cuts out some of this work
+            let Some(MoveResult(mv, new_state)) = pseudo_legal_move.try_as_legal_move(&game_state)
+            else {
+                continue;
+            };
+
             let evaluation = -Self::analyze_recursive(
-                new_state,
+                &new_state,
                 evaluator,
                 token,
                 rng,
@@ -271,7 +279,7 @@ impl Searcher {
                     game_state,
                     TranspositionEntry {
                         kind: EvaluationKind::LowerBound,
-                        performed_move: *mv,
+                        performed_move: mv,
                         depth: current_depth,
                         max_depth,
                         evaluation: beta,
@@ -283,9 +291,15 @@ impl Searcher {
 
             if evaluation > alpha {
                 alpha = evaluation;
-                best_move = Some(*mv);
+                best_move = Some(mv);
                 evaluation_type = EvaluationKind::Exact;
             }
+        }
+
+        // We didn't have any legal moves, so this is checkmate or stalemate
+        if previous_nodes_searched == *nodes_searched {
+            let evaluation = evaluator.evaluate(game_state, game_state.turn_to_move());
+            return Ok(evaluation);
         }
 
         if let Some(best_move) = best_move {
@@ -315,7 +329,7 @@ impl Searcher {
         beta: eval::Evaluation,
     ) -> Result<eval::Evaluation, SearchInterrupt> {
         let mut buffer = MoveGenerationBuffer::new();
-        MoveGenerator.compute_legal_moves_into(&game_state, &mut buffer);
+        MoveGenerator::compute_legal_moves_into(&game_state, &mut buffer);
 
         // Don't bother searching further, this is checkmate or stalemate
         if buffer.legal_moves.is_empty() {
@@ -380,9 +394,8 @@ impl Searcher {
     ) where
         F: FnMut(&State, &Move, usize, usize) -> (),
     {
-        let generator = MoveGenerator;
         if let Some((buffer, remaining_buffers)) = buffers.split_first_mut() {
-            generator.compute_legal_moves_into(&state, buffer);
+            MoveGenerator::compute_legal_moves_into(&state, buffer);
 
             // Quick perf optimization to avoid a function call.
             if remaining_buffers.is_empty() {

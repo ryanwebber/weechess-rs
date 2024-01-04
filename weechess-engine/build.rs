@@ -71,6 +71,5 @@ fn generate_book_data() -> Result<(), BuildError> {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
     generate_book_data().unwrap();
 }

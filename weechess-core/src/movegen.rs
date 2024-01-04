@@ -10,7 +10,7 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct MoveGenerationBuffer {
     pub legal_moves: Vec<MoveResult>,
-    pub psuedo_legal_moves: Vec<Move>,
+    pub psuedo_legal_moves: Vec<PseudoLegalMove>,
 }
 
 impl MoveGenerationBuffer {
@@ -37,48 +37,69 @@ impl Into<MoveSet> for MoveGenerationBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PseudoLegalMove(Move);
+
+impl PseudoLegalMove {
+    pub fn try_as_legal_move(self, state: &State) -> Option<MoveResult> {
+        let king = PieceIndex::new(state.turn_to_move(), Piece::King);
+        let next_state = State::by_performing_move(state, &self.0).unwrap();
+        let king_position = next_state.board().piece_occupancy(king);
+        let attacked_positions = next_state
+            .board()
+            .colored_attacks(next_state.turn_to_move());
+
+        if (king_position & attacked_positions).none() {
+            Some(MoveResult(self.0, next_state))
+        } else {
+            None
+        }
+    }
+}
+
+impl Deref for PseudoLegalMove {
+    type Target = Move;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub struct MoveGenerator;
 
 impl MoveGenerator {
-    pub fn compute_legal_moves(&self, state: &State) -> MoveSet {
+    pub fn compute_legal_moves(state: &State) -> MoveSet {
         let mut buffer = MoveGenerationBuffer::new();
-        self.compute_legal_moves_into(state, &mut buffer);
+        Self::compute_legal_moves_into(state, &mut buffer);
         buffer.into()
     }
 
-    pub fn compute_legal_moves_into(&self, state: &State, buffer: &mut MoveGenerationBuffer) {
+    pub fn compute_legal_moves_into(state: &State, buffer: &mut MoveGenerationBuffer) {
         buffer.clear();
 
         let moves = &mut buffer.psuedo_legal_moves;
-        self.compute_psuedo_legal_moves(state, moves);
-
-        let king = PieceIndex::new(state.turn_to_move(), Piece::King);
+        Self::compute_psuedo_legal_moves_into(state, moves);
 
         for m in moves.iter() {
-            let next_state = State::by_performing_move(state, m).unwrap();
-            let king_position = next_state.board().piece_occupancy(king);
-            let attacked_positions = next_state
-                .board()
-                .colored_attacks(next_state.turn_to_move());
-
-            if (king_position & attacked_positions).none() {
-                buffer.legal_moves.push(MoveResult(*m, next_state));
+            if let Some(result) = m.try_as_legal_move(state) {
+                buffer.legal_moves.push(result);
             }
         }
     }
 
-    fn compute_psuedo_legal_moves(&self, state: &State, result: &mut Vec<Move>) {
+    pub fn compute_psuedo_legal_moves_into(state: &State, result: &mut Vec<PseudoLegalMove>) {
+        result.clear();
         let generator = &AttackGenerator;
         let helper = GameStateHelper { state, generator };
-        self.compute_pawn_moves(helper, result);
-        self.compute_knight_moves(helper, result);
-        self.compute_king_moves(helper, result);
-        self.compute_bishop_moves(helper, result);
-        self.compute_rook_moves(helper, result);
-        self.compute_queen_moves(helper, result);
+        Self::compute_pawn_moves(helper, result);
+        Self::compute_knight_moves(helper, result);
+        Self::compute_king_moves(helper, result);
+        Self::compute_bishop_moves(helper, result);
+        Self::compute_rook_moves(helper, result);
+        Self::compute_queen_moves(helper, result);
     }
 
-    fn compute_pawn_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
+    fn compute_pawn_moves<'a>(helper: GameStateHelper<'a>, result: &mut Vec<PseudoLegalMove>) {
         let pawn = helper.to_own_piece(Piece::Pawn);
         let pawns = helper.own_piece(Piece::Pawn);
 
@@ -98,7 +119,7 @@ impl MoveGenerator {
                 let target = Square::from(pos);
                 let origin = target.offset(backwards).unwrap();
                 let mv = Move::by_moving(pawn, origin, target);
-                result.push(mv);
+                result.push(PseudoLegalMove(mv));
             }
 
             // Promotion moves
@@ -107,7 +128,7 @@ impl MoveGenerator {
                 let origin = target.offset(backwards).unwrap();
                 for piece in PROMOTION_TYPES {
                     let mv = Move::by_promoting(pawn, origin, target, *piece);
-                    result.push(mv);
+                    result.push(PseudoLegalMove(mv));
                 }
             }
         }
@@ -126,7 +147,7 @@ impl MoveGenerator {
                 });
 
                 let mv = Move::by_moving(pawn, origin, target);
-                result.push(mv);
+                result.push(PseudoLegalMove(mv));
             }
         }
 
@@ -159,7 +180,7 @@ impl MoveGenerator {
                     let origin = target.offset(inverted_capture_offset).unwrap();
                     let capture = helper.board().piece_at(target).unwrap();
                     let mv = Move::by_capturing(pawn, origin, target, capture.piece());
-                    result.push(mv);
+                    result.push(PseudoLegalMove(mv));
                 }
 
                 // Promotion captures
@@ -176,7 +197,7 @@ impl MoveGenerator {
                             *piece,
                         );
 
-                        result.push(mv);
+                        result.push(PseudoLegalMove(mv));
                     }
                 }
 
@@ -185,13 +206,13 @@ impl MoveGenerator {
                     let target = Square::from(bit);
                     let origin = target.offset(inverted_capture_offset).unwrap();
                     let mv = Move::by_en_passant(pawn, origin, target);
-                    result.push(mv);
+                    result.push(PseudoLegalMove(mv));
                 }
             }
         }
     }
 
-    fn compute_knight_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
+    fn compute_knight_moves<'a>(helper: GameStateHelper<'a>, result: &mut Vec<PseudoLegalMove>) {
         let knights = helper.own_piece(Piece::Knight);
         for bit in knights.iter_ones() {
             let square = Square::from(bit);
@@ -202,7 +223,7 @@ impl MoveGenerator {
         }
     }
 
-    fn compute_king_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
+    fn compute_king_moves<'a>(helper: GameStateHelper<'a>, result: &mut Vec<PseudoLegalMove>) {
         let color = helper.turn_to_move();
         let kings = helper.own_piece(Piece::King);
         for bit in kings.iter_ones() {
@@ -219,13 +240,13 @@ impl MoveGenerator {
                 let path_blocks = helper.board().occupancy() & CASTLE_PATH_MASKS[*side][color];
                 let path_checks = helper.opposing_attacks() & CASTLE_CHECK_MASKS[*side][color];
                 if path_blocks.none() && path_checks.none() {
-                    result.push(Move::by_castling(color, *side));
+                    result.push(PseudoLegalMove(Move::by_castling(color, *side)));
                 }
             }
         }
     }
 
-    fn compute_bishop_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
+    fn compute_bishop_moves<'a>(helper: GameStateHelper<'a>, result: &mut Vec<PseudoLegalMove>) {
         let occupancy = helper.board().occupancy();
         let bishops = helper.own_piece(Piece::Bishop);
         let own_pieces = helper.own_pieces();
@@ -237,7 +258,7 @@ impl MoveGenerator {
         }
     }
 
-    fn compute_rook_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
+    fn compute_rook_moves<'a>(helper: GameStateHelper<'a>, result: &mut Vec<PseudoLegalMove>) {
         let occupancy = helper.board().occupancy();
         let rooks = helper.own_piece(Piece::Rook);
         let own_pieces = helper.own_pieces();
@@ -249,7 +270,7 @@ impl MoveGenerator {
         }
     }
 
-    fn compute_queen_moves<'a>(&self, helper: GameStateHelper<'a>, result: &mut Vec<Move>) {
+    fn compute_queen_moves<'a>(helper: GameStateHelper<'a>, result: &mut Vec<PseudoLegalMove>) {
         let occupancy = helper.board().occupancy();
         let queens = helper.own_piece(Piece::Queen);
         let own_pieces = helper.own_pieces();
@@ -314,7 +335,7 @@ impl GameStateHelper<'_> {
         origin: Square,
         destinations: BitBoard,
         piece: Piece,
-        result: &mut Vec<Move>,
+        result: &mut Vec<PseudoLegalMove>,
     ) {
         let piece = self.to_own_piece(piece);
 
@@ -322,10 +343,10 @@ impl GameStateHelper<'_> {
             let target = Square::from(bit);
             if let Some(capture) = self.board().piece_at(target) {
                 let mv = Move::by_capturing(piece, origin, target, capture.piece());
-                result.push(mv);
+                result.push(PseudoLegalMove(mv));
             } else {
                 let mv = Move::by_moving(piece, origin, target);
-                result.push(mv);
+                result.push(PseudoLegalMove(mv));
             }
         }
     }

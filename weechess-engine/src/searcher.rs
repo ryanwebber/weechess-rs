@@ -240,9 +240,9 @@ impl Searcher {
         // allow us to prune more branches early in alpha-beta search
         buffer
             .legal_moves
-            .sort_by_cached_key(|MoveResult(_, new_state)| {
+            .sort_by_cached_key(|MoveResult(mv, new_state)| {
                 // Estimate is faster than evaluate for this purpose
-                evaluator.estimate(new_state, new_state.turn_to_move())
+                evaluator.estimate(new_state, mv, new_state.turn_to_move())
             });
 
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations

@@ -1,22 +1,25 @@
 use std::{
     borrow::Cow,
     fmt::Display,
-    ops::{Add, AddAssign, Deref, Mul, Neg},
+    ops::{Add, AddAssign, Deref, Mul, Neg, Sub, SubAssign},
 };
 
 use weechess_core::{
-    utils::ArrayMap, Color, MoveGenerationBuffer, MoveGenerator, MoveResult, Piece, PieceIndex,
-    State,
+    utils::ArrayMap, BitBoard, Color, Move, MoveGenerationBuffer, MoveGenerator, MoveResult, Piece,
+    PieceIndex, State,
 };
 
-mod estimate_piece_worths;
+use self::evaluate_piece_worths::PIECE_PAWN_WORTHS;
+
 mod evaluate_force_king_to_edge;
 mod evaluate_piece_squares;
+mod evaluate_piece_worths;
 
 type EvaluationFunction =
     fn(v: &StateVariation<'_>, perspective: &Color, eval: &mut Evaluation, stop: &mut bool);
 
 const EVALUATORS: &'static [(f32, EvaluationFunction)] = &[
+    (1.0, evaluate_piece_worths::evaluate),
     (0.8, evaluate_piece_squares::evaluate),
     (1.0, evaluate_force_king_to_edge::evaluate),
 ];
@@ -44,9 +47,23 @@ impl Add<Evaluation> for Evaluation {
     }
 }
 
+impl Sub<Evaluation> for Evaluation {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Evaluation(self.0 - rhs.0)
+    }
+}
+
 impl AddAssign<Evaluation> for Evaluation {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0
+    }
+}
+
+impl SubAssign<Evaluation> for Evaluation {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0
     }
 }
 
@@ -195,15 +212,40 @@ impl Evaluator {
         Self { fns }
     }
 
-    pub fn estimate(&self, state: &State, perspective: Color) -> Evaluation {
-        estimate_piece_worths::estimate(state, &perspective)
+    pub fn estimate(&self, state: &State, mv: &Move, perspective: Color) -> Evaluation {
+        let mut eval = Evaluation::EVEN;
+
+        // Putting a piece where it can be attacked by a pawn is probably bad.
+        let pawn_attacks = state.board().colored_pawn_attacks(!perspective);
+        if (pawn_attacks & BitBoard::just(mv.destination())).any() {
+            eval -= Evaluation::ONE_PAWN * 3.0;
+        }
+
+        // Capturing a piece more valuable is probably good
+        if let Some(captured_piece) = mv.capture() {
+            eval += Evaluation::ONE_PAWN
+                * (PIECE_PAWN_WORTHS[captured_piece] - PIECE_PAWN_WORTHS[mv.piece()])
+                * 2.0;
+        }
+
+        // A promotion is probably good
+        if let Some(promotion) = mv.promotion() {
+            eval += Evaluation::ONE_PAWN * PIECE_PAWN_WORTHS[promotion];
+        }
+
+        // Putting the king in check is probably good
+        let their_king = state
+            .board()
+            .piece_occupancy(PieceIndex::new(!perspective, Piece::King));
+        if (their_king & state.board().colored_attacks(perspective)).any() {
+            eval += Evaluation::ONE_PAWN;
+        }
+
+        eval
     }
 
     pub fn evaluate(&self, state: &State, perspective: Color) -> Evaluation {
         let v = StateVariation::from(state);
-
-        // TODO: Remove this, I'm just annoyed by the warning
-        _ = v.piece_counts;
 
         // First, check for checkmate or stalemate.
         if v.legal_moves.is_empty() && state.is_check() {
@@ -216,7 +258,7 @@ impl Evaluator {
             return Evaluation::EVEN;
         }
 
-        let mut eval = self.estimate(state, perspective);
+        let mut eval = Evaluation::EVEN;
         let mut stop = false;
 
         for (w, f) in self.fns {
@@ -227,7 +269,7 @@ impl Evaluator {
                 let mut e2 = Evaluation::EVEN;
                 f(&v, &!perspective, &mut e2, &mut stop);
 
-                e1 + (-e2)
+                e1 - e2
             };
 
             eval += e * (*w);

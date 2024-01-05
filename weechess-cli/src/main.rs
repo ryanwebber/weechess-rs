@@ -134,6 +134,7 @@ fn run() -> Result<(), anyhow::Error> {
                 }
             };
 
+            let start_time = std::time::Instant::now();
             let searcher = searcher::Searcher::new();
             let count = searcher.perft(&game_state, depth, |gs, mv, depth, count| {
                 if depth == 1 {
@@ -146,7 +147,13 @@ fn run() -> Result<(), anyhow::Error> {
                 }
             });
 
-            println!("\nTotal nodes: {}", count);
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let nodes_per_second = count as f64 / elapsed;
+
+            println!(
+                "\nTotal nodes: {} ({:.2}s : {:.0}nps)",
+                count, elapsed, nodes_per_second
+            );
 
             Ok(())
         }

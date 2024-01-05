@@ -41,6 +41,10 @@ impl Into<MoveSet> for MoveGenerationBuffer {
 pub struct PseudoLegalMove(Move);
 
 impl PseudoLegalMove {
+    pub fn new(mv: Move) -> Self {
+        Self(mv)
+    }
+
     pub fn try_as_legal_move(self, state: &State) -> Option<MoveResult> {
         let king = PieceIndex::new(state.turn_to_move(), Piece::King);
         let next_state = State::by_performing_move(state, &self.0).unwrap();
@@ -89,8 +93,7 @@ impl MoveGenerator {
 
     pub fn compute_psuedo_legal_moves_into(state: &State, result: &mut Vec<PseudoLegalMove>) {
         result.clear();
-        let generator = &AttackGenerator;
-        let helper = GameStateHelper { state, generator };
+        let helper = GameStateHelper { state };
         Self::compute_pawn_moves(helper, result);
         Self::compute_knight_moves(helper, result);
         Self::compute_king_moves(helper, result);
@@ -216,7 +219,7 @@ impl MoveGenerator {
         let knights = helper.own_piece(Piece::Knight);
         for bit in knights.iter_ones() {
             let square = Square::from(bit);
-            let jumps = helper.generator.compute_knight_attacks(square)
+            let jumps = AttackGenerator::compute_knight_attacks(square)
                 & (helper.opposing_pieces() | helper.board().vacancy());
 
             helper.expand_moves(square, jumps, Piece::Knight, result);
@@ -228,7 +231,7 @@ impl MoveGenerator {
         let kings = helper.own_piece(Piece::King);
         for bit in kings.iter_ones() {
             let origin = Square::from(bit);
-            let jumps = helper.generator.compute_king_attacks(origin)
+            let jumps = AttackGenerator::compute_king_attacks(origin)
                 & (helper.opposing_pieces() | helper.board().vacancy())
                 & !helper.opposing_attacks();
 
@@ -252,7 +255,7 @@ impl MoveGenerator {
         let own_pieces = helper.own_pieces();
         for bit in bishops.iter_ones() {
             let origin = Square::from(bit);
-            let attacks = helper.generator.compute_bishop_attacks(origin, occupancy);
+            let attacks = AttackGenerator::compute_bishop_attacks(origin, occupancy);
             let slides = attacks & !own_pieces;
             helper.expand_moves(origin, slides, Piece::Bishop, result);
         }
@@ -264,7 +267,7 @@ impl MoveGenerator {
         let own_pieces = helper.own_pieces();
         for bit in rooks.iter_ones() {
             let origin = Square::from(bit);
-            let attacks = helper.generator.compute_rook_attacks(origin, occupancy);
+            let attacks = AttackGenerator::compute_rook_attacks(origin, occupancy);
             let slides = attacks & !own_pieces;
             helper.expand_moves(origin, slides, Piece::Rook, result);
         }
@@ -276,7 +279,7 @@ impl MoveGenerator {
         let own_pieces = helper.own_pieces();
         for bit in queens.iter_ones() {
             let origin = Square::from(bit);
-            let attacks = helper.generator.compute_queen_attacks(origin, occupancy);
+            let attacks = AttackGenerator::compute_queen_attacks(origin, occupancy);
             let slides = attacks & !own_pieces;
             helper.expand_moves(origin, slides, Piece::Queen, result);
         }
@@ -286,7 +289,6 @@ impl MoveGenerator {
 #[derive(Copy, Clone)]
 struct GameStateHelper<'a> {
     state: &'a State,
-    generator: &'a AttackGenerator,
 }
 
 impl GameStateHelper<'_> {

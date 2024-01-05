@@ -517,12 +517,8 @@ impl AttackMap {
             let piece_index = PieceIndex::new(color, *piece);
             let mut occupancy = piece_occupancy[piece_index];
             while let Some(square) = occupancy.pop() {
-                let attacks_this_piece = AttackGenerator::compute(
-                    &AttackGenerator,
-                    piece_index,
-                    square,
-                    shared_occupancy,
-                );
+                let attacks_this_piece =
+                    AttackGenerator::compute(piece_index, square, shared_occupancy);
 
                 all_attacks |= attacks_this_piece;
                 if *piece == Piece::Pawn {
@@ -576,6 +572,11 @@ impl BitBoard {
         } else {
             Some(z)
         }
+    }
+
+    pub fn first_square(self) -> Option<Square> {
+        self.first_one()
+            .map(|bit| Square::try_from(bit as u8).unwrap())
     }
 
     #[inline]

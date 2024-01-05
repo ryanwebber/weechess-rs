@@ -23,15 +23,20 @@ bundled UCI server or terminal application binaries.
 ## Usage
 
 ```bash
-$ cargo run --bin weechess
+$ cargo run --release 
 
-Usage: ./weechess [--help] {uci}
+Usage: weechess [COMMAND]
 
-A wee-little chess engine
+Commands:
+  display   Print out the board in a human-readable format
+  evaluate  Evaluate a position
+  perft     Walk the move generation tree of strictly legal moves to count all the leaf nodes of a certain depth
+  repl      Start an interactive REPL session with the engine
+  uci       Start a UCI client
+  version   Print out the version of the engine
+  help      Print this message or the help of the given subcommand(s)
 
-Optional arguments:
-  --help
-
-Subcommands:
-  uci   Start the UCI server.
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
 ```

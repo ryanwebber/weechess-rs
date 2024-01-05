@@ -10,7 +10,6 @@ doctest = false
 
 [dependencies]
 anyhow = "1.0.75"
-bitvec = { version = "1.0.1", features = ["serde"] }
 lazy_static = "1.4.0"
 num_enum = "0.7.1"
 rand = "0.8.5"

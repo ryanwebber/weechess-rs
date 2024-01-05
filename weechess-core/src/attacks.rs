@@ -1,6 +1,6 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use crate::utils::{ArrayKey, Index};
+use crate::utils::{ArrayKey, ArrayMap, Index};
 
 use super::{BitBoard, Color, Offset, Piece, PieceIndex, Square};
 
@@ -58,19 +58,22 @@ impl Into<Offset> for Direction {
 pub struct AttackGenerator;
 
 impl AttackGenerator {
-    pub fn compute(&self, piece: PieceIndex, square: Square, occupancy: BitBoard) -> BitBoard {
-        match piece.piece() {
-            Piece::Pawn => self.compute_pawn_attacks(square, piece.color()),
-            Piece::Knight => self.compute_knight_attacks(square),
-            Piece::Bishop => self.compute_bishop_attacks(square, occupancy),
-            Piece::Rook => self.compute_rook_attacks(square, occupancy),
-            Piece::Queen => self.compute_queen_attacks(square, occupancy),
-            Piece::King => self.compute_king_attacks(square),
-            Piece::None => BitBoard::ZERO,
-        }
+    pub fn compute(piece: PieceIndex, square: Square, occupancy: BitBoard) -> BitBoard {
+        const COMPUTE_MAP: ArrayMap<Piece, fn(Color, Square, BitBoard) -> BitBoard> =
+            ArrayMap::new([
+                |_, _, _| BitBoard::ZERO, // None
+                |c, sq, _| AttackGenerator::compute_pawn_attacks(sq, c),
+                |_, sq, _| AttackGenerator::compute_knight_attacks(sq),
+                |_, sq, occ| AttackGenerator::compute_bishop_attacks(sq, occ),
+                |_, sq, occ| AttackGenerator::compute_rook_attacks(sq, occ),
+                |_, sq, occ| AttackGenerator::compute_queen_attacks(sq, occ),
+                |_, sq, _| AttackGenerator::compute_king_attacks(sq),
+            ]);
+
+        COMPUTE_MAP[piece.piece()](piece.color(), square, occupancy)
     }
 
-    pub fn compute_bishop_attacks(&self, square: Square, occupancy: BitBoard) -> BitBoard {
+    pub fn compute_bishop_attacks(square: Square, occupancy: BitBoard) -> BitBoard {
         let occupancy = occupancy & data::BISHOP_SLIDE_MASKS[square];
         let occupancy: u64 = occupancy.into();
         let magic: u64 = data::BISHOP_MAGICS[square].into();
@@ -79,7 +82,7 @@ impl AttackGenerator {
         data::BISHOP_MAGIC_TABLE[square][key as usize]
     }
 
-    pub fn compute_rook_attacks(&self, square: Square, occupancy: BitBoard) -> BitBoard {
+    pub fn compute_rook_attacks(square: Square, occupancy: BitBoard) -> BitBoard {
         let occupancy = occupancy & data::ROOK_SLIDE_MASKS[square];
         let occupancy: u64 = occupancy.into();
         let magic: u64 = data::ROOK_MAGICS[square].into();
@@ -88,20 +91,20 @@ impl AttackGenerator {
         data::ROOK_MAGIC_TABLE[square][key as usize]
     }
 
-    pub fn compute_queen_attacks(&self, square: Square, occupancy: BitBoard) -> BitBoard {
-        self.compute_rook_attacks(square, occupancy)
-            | self.compute_bishop_attacks(square, occupancy)
+    pub fn compute_queen_attacks(square: Square, occupancy: BitBoard) -> BitBoard {
+        Self::compute_rook_attacks(square, occupancy)
+            | Self::compute_bishop_attacks(square, occupancy)
     }
 
-    pub fn compute_knight_attacks(&self, square: Square) -> BitBoard {
+    pub fn compute_knight_attacks(square: Square) -> BitBoard {
         data::KNIGHT_ATTACKS[square]
     }
 
-    pub fn compute_king_attacks(&self, square: Square) -> BitBoard {
+    pub fn compute_king_attacks(square: Square) -> BitBoard {
         data::KING_ATTACKS[square]
     }
 
-    pub fn compute_pawn_attacks(&self, square: Square, color: Color) -> BitBoard {
+    pub fn compute_pawn_attacks(square: Square, color: Color) -> BitBoard {
         data::PAWN_ATTACKS[color][square]
     }
 }
@@ -548,8 +551,7 @@ mod test {
 
     #[test]
     fn test_knight_attacks() {
-        let generator = AttackGenerator;
-        let attacks = generator.compute_knight_attacks(Square::A1);
+        let attacks = AttackGenerator::compute_knight_attacks(Square::A1);
         assert_eq!(attacks, {
             let mut attacks = BitBoard::ZERO;
             attacks.set(Square::B3, true);
@@ -560,8 +562,7 @@ mod test {
 
     #[test]
     fn test_pawn_attacks() {
-        let generator = AttackGenerator;
-        let attacks = generator.compute_pawn_attacks(Square::B1, Color::White);
+        let attacks = AttackGenerator::compute_pawn_attacks(Square::B1, Color::White);
         assert_eq!(attacks, {
             let mut attacks = BitBoard::ZERO;
             attacks.set(Square::C2, true);
@@ -569,7 +570,7 @@ mod test {
             attacks
         });
 
-        let attacks = generator.compute_pawn_attacks(Square::B2, Color::Black);
+        let attacks = AttackGenerator::compute_pawn_attacks(Square::B2, Color::Black);
         assert_eq!(attacks, {
             let mut attacks = BitBoard::ZERO;
             attacks.set(Square::C1, true);
@@ -580,8 +581,7 @@ mod test {
 
     #[test]
     fn test_king_attacks() {
-        let generator = AttackGenerator;
-        let attacks = generator.compute_king_attacks(Square::A3);
+        let attacks = AttackGenerator::compute_king_attacks(Square::A3);
         assert_eq!(attacks, {
             let mut attacks = BitBoard::ZERO;
             attacks.set(Square::A4, true);
@@ -595,8 +595,6 @@ mod test {
 
     #[test]
     fn test_rook_attacks() {
-        let generator = AttackGenerator;
-
         let blockers = {
             let mut blockers = BitBoard::ZERO;
             blockers.set(Square::A1, true);
@@ -606,7 +604,7 @@ mod test {
             blockers
         };
 
-        let attacks = generator.compute_rook_attacks(Square::C3, blockers);
+        let attacks = AttackGenerator::compute_rook_attacks(Square::C3, blockers);
         assert_eq!(attacks, {
             let mut attacks = BitBoard::ZERO;
 
@@ -634,8 +632,6 @@ mod test {
 
     #[test]
     fn test_bishop_attacks() {
-        let generator = AttackGenerator;
-
         let blockers = {
             let mut blockers = BitBoard::ZERO;
             blockers.set(Square::B4, true);
@@ -644,7 +640,7 @@ mod test {
             blockers
         };
 
-        let attacks = generator.compute_bishop_attacks(Square::C3, blockers);
+        let attacks = AttackGenerator::compute_bishop_attacks(Square::C3, blockers);
         assert_eq!(attacks, {
             let mut attacks = BitBoard::ZERO;
 

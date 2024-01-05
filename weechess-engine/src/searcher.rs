@@ -112,9 +112,10 @@ impl Searcher {
         let mut nodes_searched = 0;
         let mut move_buffer = Vec::new();
 
-        for depth in 0..max_depth {
-            let mut best_eval = eval::Evaluation::NEG_INF;
+        let mut best_eval = eval::Evaluation::NEG_INF;
+        let mut best_mv = None;
 
+        for depth in 0..max_depth {
             match Self::analyze_recursive(
                 &game_state,
                 evaluator,
@@ -125,34 +126,54 @@ impl Searcher {
                 &mut nodes_searched,
                 depth + 1,
                 0,
+                0,
                 eval::Evaluation::NEG_INF,
                 eval::Evaluation::POS_INF,
+                best_mv,
             ) {
                 Ok(e) => {
                     f(StatusEvent::Progress {
-                        depth: depth as u32,
+                        depth: (depth + 1) as u32,
                         nodes_searched,
                         transposition_saturation: transpositions.saturation(),
                     });
 
-                    if e > best_eval {
-                        best_eval = e;
-                        f(StatusEvent::BestMove {
-                            evaluation: e,
-                            line: {
-                                let line: Vec<Move> = transpositions
-                                    .iter_moves(&game_state, depth)
-                                    .map(|r| r.0)
-                                    .collect();
+                    let line: Vec<Move> = transpositions
+                        .iter_moves(&game_state, depth)
+                        .map(|r| r.0)
+                        .collect();
 
-                                assert!(!line.is_empty());
+                    best_eval = e;
+                    best_mv = line.first().copied();
 
-                                line
-                            },
-                        });
-                    }
+                    assert!(!line.is_empty());
+
+                    f(StatusEvent::BestMove {
+                        evaluation: e,
+                        line,
+                    });
                 }
-                Err(SearchInterrupt) => break,
+                Err(SearchInterrupt) => {
+                    if let Some(x) = transpositions.find(&game_state) {
+                        if x.evaluation > best_eval {
+                            f(StatusEvent::BestMove {
+                                evaluation: x.evaluation,
+                                line: {
+                                    let line: Vec<Move> = transpositions
+                                        .iter_moves(&game_state, depth)
+                                        .map(|r| r.0)
+                                        .collect();
+
+                                    assert!(!line.is_empty());
+
+                                    line
+                                },
+                            });
+                        }
+                    }
+
+                    break;
+                }
             }
 
             // If we've reached a terminal position, we can stop searching
@@ -172,18 +193,28 @@ impl Searcher {
         nodes_searched: &mut usize,
         max_depth: usize,
         current_depth: usize,
+        current_extension: usize,
         alpha: eval::Evaluation,
         beta: eval::Evaluation,
+        best_move: Option<Move>,
     ) -> Result<eval::Evaluation, SearchInterrupt> {
+        // Make sure we have a best move to search. Without this, we may end
+        // up picking arbitrary moves when the search is cancelled
+        assert!({
+            if current_depth == 0 && max_depth > 1 {
+                best_move.is_some()
+            } else {
+                true
+            }
+        });
+
         // We're searching a new node here
         *nodes_searched += 1;
 
         // To avoid spending a lot of time waiting for atomic operations,
         // let's avoid checking the cancellation token in the lower leaf nodes
-        if current_depth + 2 < max_depth {
-            if token.is_cancelled() {
-                return Err(SearchInterrupt);
-            }
+        if *nodes_searched % 10000 == 0 && token.is_cancelled() {
+            return Err(SearchInterrupt);
         }
 
         let mut alpha = alpha;
@@ -234,7 +265,7 @@ impl Searcher {
         move_buffer.sort_by_cached_key(|mv| {
             // We don't have the resulting move position yet, so we can only
             // evaluate the quality of the move at face value
-            let mut estimation = -evaluator.estimate(game_state, mv);
+            let mut estimation = evaluator.estimate(game_state, mv);
 
             // Add a bit of jiggle to the estimation so that we don't always
             // search the same moves first
@@ -243,18 +274,32 @@ impl Searcher {
             estimation
         });
 
+        // If we have a best move from the previous iteration, let's search that first
+        if let Some(best_move) = best_move {
+            move_buffer.push(PseudoLegalMove::new(best_move))
+        }
+
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations
         let mut next_buffer = Vec::new();
 
         // Keep track of where we started this search
         let previous_nodes_searched = *nodes_searched;
 
-        for pseudo_legal_move in move_buffer.iter() {
+        // Note: Search the moves back to front, ensuring we search the best moves first
+        for pseudo_legal_move in move_buffer.iter().rev() {
             // First things first, let's make sure this is a legal move. This is expensive, so we
             // have deferred it until now so that alpha-beta pruning cuts out some of this work
             let Some(MoveResult(mv, new_state)) = pseudo_legal_move.try_as_legal_move(&game_state)
             else {
                 continue;
+            };
+
+            // This is a potentially really good move. Let's look a bit deeper than normal (and
+            // also make sure we don't get into a situation where we're searching forever)
+            let extension = if current_extension < 16 {
+                Self::calculate_extension_depth(game_state, &mv)
+            } else {
+                0
             };
 
             let evaluation = -Self::analyze_recursive(
@@ -265,10 +310,12 @@ impl Searcher {
                 transpositions,
                 &mut next_buffer,
                 nodes_searched,
-                max_depth,
-                current_depth + 1,
+                max_depth + extension,
+                current_depth + 1 + extension,
+                current_extension + extension,
                 -beta,
                 -alpha,
+                None,
             )?;
 
             // This move is too good for the opponent, so they will never allow us to reach
@@ -353,6 +400,21 @@ impl Searcher {
             alpha = normal_eval;
         }
 
+        // Again, sort the moves by the estimated value of the resulting position for better pruning
+        buffer.legal_moves.sort_by_cached_key(|mv| {
+            let moving_piece_value = eval::PIECE_PAWN_WORTHS[mv.0.piece()];
+            let captured_piece_value =
+                mv.0.capture()
+                    .map(|p| eval::PIECE_PAWN_WORTHS[p])
+                    .unwrap_or(0.0);
+
+            let estimation = captured_piece_value - moving_piece_value;
+
+            // Negative because we are searching from the opponent's perspective,
+            // and converted into an integer that can be used as a key
+            -(estimation * 10.0) as i32
+        });
+
         for MoveResult(mv, new_state) in buffer.legal_moves.iter() {
             if !mv.is_capture() {
                 continue;
@@ -369,6 +431,14 @@ impl Searcher {
         }
 
         Ok(alpha)
+    }
+
+    fn calculate_extension_depth(state: &State, _: &Move) -> usize {
+        if state.is_check() {
+            1
+        } else {
+            0
+        }
     }
 
     pub fn perft<F>(&self, state: &State, depth: usize, mut f: F) -> usize

@@ -191,10 +191,11 @@ impl Display for MoveQuery {
 pub struct Move(compact::BitSet);
 
 impl Move {
-    pub const NULL: Move = Move(compact::BitSet::ZERO);
+    pub const NULL: Move = Move(0);
 
+    #[inline]
     pub fn by_moving(piece: PieceIndex, origin: Square, dest: Square) -> Self {
-        let mut bits = compact::BitSet::ZERO;
+        let mut bits = 0;
         bits.set_piece(piece.piece());
         bits.set_origin(origin);
         bits.set_dest(dest);
@@ -313,6 +314,14 @@ impl Move {
     pub fn resulting_piece(&self) -> Piece {
         self.promotion().unwrap_or(self.piece())
     }
+
+    pub fn is_simple_non_capture(&self) -> bool {
+        !self.is_capture()
+            && !self.is_promotion()
+            && !self.is_en_passant()
+            && !self.is_any_castle()
+            && !self.is_double_pawn()
+    }
 }
 
 impl Display for Move {
@@ -356,6 +365,10 @@ impl MoveSet {
     pub fn filter<'a>(&'a self, query: MoveQuery) -> impl Iterator<Item = &'a MoveResult> {
         self.0.iter().filter(move |m| query.test(&m.0))
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl Into<Vec<MoveResult>> for MoveSet {
@@ -371,25 +384,58 @@ impl From<Vec<MoveResult>> for MoveSet {
 }
 
 mod compact {
-    use std::ops::Range;
-
-    use bitvec::field::BitField;
     use num_enum::TryFromPrimitive;
 
     use crate::{Piece, Square};
 
-    pub type BitSet = bitvec::BitArr!(for 32);
+    pub type BitSet = u32;
 
-    pub const PIECE_BIT_FIELD: Range<usize> = 0..4;
-    pub const ORIGIN_BIT_FIELD: Range<usize> = 4..10;
-    pub const DEST_BIT_FIELD: Range<usize> = 10..16;
-    pub const CAPTURE_BIT_FIELD: Range<usize> = 16..20;
-    pub const PROMOTION_BIT_FIELD: Range<usize> = 20..24;
-    pub const EN_PASSANT_BIT: usize = 24;
-    pub const DOUBLE_PAWN_BIT: usize = 25;
-    pub const CASTLE_QUEENSIDE_BIT: usize = 26;
-    pub const CASTLE_KINGSIDE_BIT: usize = 27;
-    pub const COLOR_BIT: usize = 28;
+    pub const PIECE_OFFSET: u8 = 0;
+    pub const PIECE_MASK: u32 = 0b1111;
+    pub const ORIGIN_OFFSET: u8 = 4;
+    pub const ORIGIN_MASK: u32 = 0b111111 << ORIGIN_OFFSET;
+    pub const DEST_OFFSET: u8 = 10;
+    pub const DEST_MASK: u32 = 0b111111 << DEST_OFFSET;
+    pub const CAPTURE_OFFSET: u8 = 16;
+    pub const CAPTURE_MASK: u32 = 0b1111 << CAPTURE_OFFSET;
+    pub const PROMOTION_OFFSET: u8 = 20;
+    pub const PROMOTION_MASK: u32 = 0b1111 << PROMOTION_OFFSET;
+    pub const EN_PASSANT_OFFSET: u8 = 24;
+    pub const DOUBLE_PAWN_OFFSET: u8 = 25;
+    pub const CASTLE_QUEENSIDE_OFFSET: u8 = 26;
+    pub const CASTLE_KINGSIDE_OFFSET: u8 = 27;
+    pub const COLOR_OFFSET: u8 = 28;
+
+    #[inline]
+    pub fn store(data: &mut u32, offset: u8, mask: u32, value: u8) {
+        let value = value as u32;
+        let value = value << offset;
+        let value = value & mask;
+        *data |= value;
+    }
+
+    #[inline]
+    pub fn load(data: u32, offset: u8, mask: u32) -> u8 {
+        let value = data & mask;
+        let value = value >> offset;
+        value as u8
+    }
+
+    #[inline]
+    pub fn bit(data: &u32, bit: u8) -> bool {
+        let mask = 1 << bit;
+        data & mask != 0
+    }
+
+    #[inline]
+    pub fn set_bit(data: &mut u32, bit: u8, value: bool) {
+        let mask = 1 << bit;
+        if value {
+            *data |= mask;
+        } else {
+            *data &= !mask;
+        }
+    }
 
     pub trait BitSetExt {
         fn piece(&self) -> Piece;
@@ -425,37 +471,37 @@ mod compact {
 
     impl BitSetExt for BitSet {
         fn piece(&self) -> Piece {
-            let piece: u8 = self[PIECE_BIT_FIELD].load();
+            let piece: u8 = load(*self, PIECE_OFFSET, PIECE_MASK);
             Piece::try_from_primitive(piece).unwrap()
         }
 
         fn set_piece(&mut self, piece: Piece) {
             let value: u8 = piece.into();
-            self[PIECE_BIT_FIELD].store(value);
+            store(self, PIECE_OFFSET, PIECE_MASK, value);
         }
 
         fn origin(&self) -> Square {
-            let origin: u8 = self[ORIGIN_BIT_FIELD].load();
+            let origin: u8 = load(*self, ORIGIN_OFFSET, ORIGIN_MASK);
             Square::try_from(origin).unwrap()
         }
 
         fn set_origin(&mut self, origin: Square) {
             let value: u8 = origin.into();
-            self[ORIGIN_BIT_FIELD].store(value);
+            store(self, ORIGIN_OFFSET, ORIGIN_MASK, value);
         }
 
         fn dest(&self) -> Square {
-            let dest: u8 = self[DEST_BIT_FIELD].load();
+            let dest: u8 = load(*self, DEST_OFFSET, DEST_MASK);
             Square::try_from(dest).unwrap()
         }
 
         fn set_dest(&mut self, dest: Square) {
             let value: u8 = dest.into();
-            self[DEST_BIT_FIELD].store(value);
+            store(self, DEST_OFFSET, DEST_MASK, value);
         }
 
         fn capture(&self) -> Option<Piece> {
-            let capture: u8 = self[CAPTURE_BIT_FIELD].load();
+            let capture: u8 = load(*self, CAPTURE_OFFSET, CAPTURE_MASK);
             if capture == 0 {
                 None
             } else {
@@ -465,11 +511,11 @@ mod compact {
 
         fn set_capture(&mut self, capture: Option<Piece>) {
             let value: u8 = capture.map(|p| p.into()).unwrap_or(0);
-            self[CAPTURE_BIT_FIELD].store(value);
+            store(self, CAPTURE_OFFSET, CAPTURE_MASK, value);
         }
 
         fn promotion(&self) -> Option<Piece> {
-            let promotion: u8 = self[PROMOTION_BIT_FIELD].load();
+            let promotion: u8 = load(*self, PROMOTION_OFFSET, PROMOTION_MASK);
             if promotion == 0 {
                 None
             } else {
@@ -479,47 +525,47 @@ mod compact {
 
         fn set_promotion(&mut self, promotion: Option<Piece>) {
             let value: u8 = promotion.map(|p| p.into()).unwrap_or(0);
-            self[PROMOTION_BIT_FIELD].store(value);
+            store(self, PROMOTION_OFFSET, PROMOTION_MASK, value);
         }
 
         fn en_passant(&self) -> bool {
-            self[EN_PASSANT_BIT]
+            bit(self, EN_PASSANT_OFFSET)
         }
 
         fn set_en_passant(&mut self, en_passant: bool) {
-            self.set(EN_PASSANT_BIT, en_passant);
+            set_bit(self, EN_PASSANT_OFFSET, en_passant);
         }
 
         fn double_pawn(&self) -> bool {
-            self[DOUBLE_PAWN_BIT]
+            bit(self, DOUBLE_PAWN_OFFSET)
         }
 
         fn set_double_pawn(&mut self, double_pawn: bool) {
-            self.set(DOUBLE_PAWN_BIT, double_pawn);
+            set_bit(self, DOUBLE_PAWN_OFFSET, double_pawn);
         }
 
         fn castle_queenside(&self) -> bool {
-            self[CASTLE_QUEENSIDE_BIT]
+            bit(self, CASTLE_QUEENSIDE_OFFSET)
         }
 
         fn set_castle_queenside(&mut self, castle_queenside: bool) {
-            self.set(CASTLE_QUEENSIDE_BIT, castle_queenside);
+            set_bit(self, CASTLE_QUEENSIDE_OFFSET, castle_queenside);
         }
 
         fn castle_kingside(&self) -> bool {
-            self[CASTLE_KINGSIDE_BIT]
+            bit(self, CASTLE_KINGSIDE_OFFSET)
         }
 
         fn set_castle_kingside(&mut self, castle_kingside: bool) {
-            self.set(CASTLE_KINGSIDE_BIT, castle_kingside);
+            set_bit(self, CASTLE_KINGSIDE_OFFSET, castle_kingside);
         }
 
         fn color(&self) -> bool {
-            self[COLOR_BIT]
+            bit(self, COLOR_OFFSET)
         }
 
         fn set_color(&mut self, color: bool) {
-            self.set(COLOR_BIT, color);
+            set_bit(self, COLOR_OFFSET, color);
         }
     }
 }

@@ -1,20 +1,19 @@
 use std::{
-    borrow::Cow,
     fmt::Display,
     ops::{Add, AddAssign, Deref, Mul, Neg, Sub, SubAssign},
 };
 
 use weechess_core::{
-    utils::ArrayMap, BitBoard, Color, Move, MoveGenerationBuffer, MoveGenerator, MoveResult, Piece,
-    PieceIndex, State,
+    utils::ArrayMap, AttackGenerator, BitBoard, Color, Move, MoveGenerator, Piece, PieceIndex,
+    State,
 };
-
-use self::evaluate_piece_worths::PIECE_PAWN_WORTHS;
 
 mod evaluate_bad_pawns;
 mod evaluate_force_king_to_edge;
 mod evaluate_piece_squares;
 mod evaluate_piece_worths;
+
+pub use evaluate_piece_worths::PIECE_PAWN_WORTHS;
 
 type EvaluationFunction =
     fn(v: &StateVariation<'_>, perspective: &Color, eval: &mut Evaluation, stop: &mut bool);
@@ -136,7 +135,6 @@ impl Display for Centipawn {
 
 struct StateVariation<'a> {
     state: &'a State,
-    legal_moves: Cow<'a, [MoveResult]>,
     end_game_weight: f32,
     piece_counts: ArrayMap<PieceIndex, u8>,
     color_counts: ArrayMap<Color, u8>,
@@ -152,9 +150,6 @@ impl Deref for StateVariation<'_> {
 
 impl<'a> From<&'a State> for StateVariation<'a> {
     fn from(state: &'a State) -> Self {
-        let mut buffer = MoveGenerationBuffer::new();
-        MoveGenerator::compute_legal_moves_into(state, &mut buffer);
-
         let (piece_counts, color_counts) = {
             let mut piece_counts = ArrayMap::default();
             let mut color_counts = ArrayMap::default();
@@ -193,7 +188,6 @@ impl<'a> From<&'a State> for StateVariation<'a> {
             piece_counts,
             color_counts,
             end_game_weight,
-            legal_moves: Cow::Owned(buffer.legal_moves),
         }
     }
 }
@@ -270,15 +264,32 @@ impl Evaluator {
     pub fn evaluate(&self, state: &State, perspective: Color) -> Evaluation {
         let v = StateVariation::from(state);
 
-        // First, check for checkmate or stalemate.
-        if v.legal_moves.is_empty() && state.is_check() {
-            return if state.turn_to_move() == perspective {
-                Evaluation::NEG_INF
-            } else {
-                Evaluation::POS_INF
-            };
-        } else if v.legal_moves.is_empty() {
-            return Evaluation::EVEN;
+        let king_has_move = {
+            let king = state
+                .board()
+                .piece_occupancy(PieceIndex::new(state.turn_to_move(), Piece::King));
+            let king_square = king.first_square().unwrap();
+            let spaces_around_king = AttackGenerator::compute_king_attacks(king_square);
+            let valid_king_squares = spaces_around_king
+                & !state.board().occupancy()
+                & !state.board().colored_attacks(!state.turn_to_move());
+
+            valid_king_squares.any()
+        };
+
+        // If the king can move, we're definitely not in checkmate or stalemate, so we can
+        // skip the expensive check for checkmate or stalemate through move generation
+        if !king_has_move {
+            let legal_moves = MoveGenerator::compute_legal_moves(state);
+            if legal_moves.is_empty() && state.is_check() {
+                return if state.turn_to_move() == perspective {
+                    Evaluation::NEG_INF
+                } else {
+                    Evaluation::POS_INF
+                };
+            } else if legal_moves.is_empty() {
+                return Evaluation::EVEN;
+            }
         }
 
         let mut eval = Evaluation::EVEN;
@@ -299,6 +310,24 @@ impl Evaluator {
 
             if stop {
                 break;
+            }
+        }
+
+        eval
+    }
+
+    pub fn sum_material(&self, state: &State, perspective: &Color) -> Evaluation {
+        let mut eval = Evaluation::EVEN;
+        for color in Color::ALL {
+            let multiplier = if *color == *perspective { 1 } else { -1 };
+            for piece in Piece::ALL {
+                let piece_index = PieceIndex::new(*color, *piece);
+                let piece_occupancy = state.board().piece_occupancy(piece_index);
+                let piece_count = piece_occupancy.count_ones() as u8;
+                eval += Evaluation::ONE_PAWN
+                    * PIECE_PAWN_WORTHS[*piece]
+                    * piece_count as i32
+                    * multiplier;
             }
         }
 

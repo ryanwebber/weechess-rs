@@ -322,6 +322,10 @@ impl Move {
             && !self.is_any_castle()
             && !self.is_double_pawn()
     }
+
+    pub fn as_raw(&self) -> u32 {
+        self.0
+    }
 }
 
 impl Display for Move {

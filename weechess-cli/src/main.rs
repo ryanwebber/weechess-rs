@@ -101,7 +101,7 @@ fn run() -> Result<(), anyhow::Error> {
                 let searcher = searcher::Searcher::new();
                 let evaluator = eval::Evaluator::default();
                 let (search_handle, send, recv) =
-                    searcher.analyze(game_state, rng_seed, evaluator, max_depth);
+                    searcher.analyze(game_state, rng_seed, evaluator, max_depth, None);
 
                 let print_handle = thread::spawn(move || loop {
                     match recv.recv() {
@@ -189,6 +189,7 @@ fn run() -> Result<(), anyhow::Error> {
                                 rng_seed,
                                 evaluator,
                                 max_depth,
+                                None,
                             );
 
                             let print_handle = thread::spawn(move || {
@@ -267,13 +268,7 @@ mod common {
                     .collect::<Vec<_>>()
                     .join(" ");
 
-                println!(
-                    "{} {} ({}) {}",
-                    "Best Move".bright_green(),
-                    "|".dimmed(),
-                    evaluation,
-                    line
-                );
+                println!("[{}] ({}) {}", "Best Move".bright_green(), evaluation, line);
             }
             searcher::StatusEvent::Progress {
                 depth,
@@ -290,7 +285,10 @@ mod common {
                     nodes_per_second,
                     transposition_saturation * 100.0
                 );
-                println!("{}  {} {}", "Progress".dimmed(), "|".dimmed(), f.dimmed());
+                println!("[{} ] {}", "Progress".dimmed(), f.dimmed());
+            }
+            searcher::StatusEvent::Warning { message, .. } => {
+                println!("[{}  ] {}", "Warning".bright_red(), message);
             }
         }
     }

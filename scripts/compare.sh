@@ -2,9 +2,11 @@
 
 set -e
 
+which cutechess-cli > /dev/null || (echo "cutechess-cli not found" && exit 1)
+
 SCRIPT_DIR=$(dirname $(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd))
 
-ENGINE_CTRL_PATH="${SCRIPT_DIR}/versions/weechess.004-eckart.exe"
+ENGINE_CTRL_PATH="${SCRIPT_DIR}/versions/weechess.005-jackal.exe"
 ENGINE_CTRL_NAME="$(${ENGINE_CTRL_PATH} version)"
 ENGINE_CTRL_ARGS="uci"
 

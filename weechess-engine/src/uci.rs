@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     io::{stdin, BufRead},
     sync::mpsc,
     thread,
@@ -7,7 +8,7 @@ use std::{
 use crate::{
     book::OpeningBook,
     eval::Evaluator,
-    searcher::{self, Searcher},
+    searcher::{self, SearchArtifact, Searcher},
     version::EngineVersion,
 };
 
@@ -32,6 +33,7 @@ impl Client {
         let mut input = stdin().lock().lines();
         let mut current_search: Option<Search> = None;
         let mut current_position: State = State::default();
+        let mut previous_artifact = None;
         let mut rng = rand::thread_rng();
         let book = OpeningBook::try_default().unwrap();
         while let Some(Ok(cmd)) = input.next() {
@@ -39,7 +41,7 @@ impl Client {
             match parts.split_first() {
                 Some((&"go", _)) => {
                     if let Some(search) = current_search.take() {
-                        search.wait_cancel();
+                        previous_artifact = Some(search.wait_cancel());
                     }
 
                     // TODO: Do we always want to pick a book move?
@@ -47,19 +49,18 @@ impl Client {
                         let moves = moves.iter().collect::<Vec<_>>();
                         let m = moves[rng.gen_range(0..moves.len())];
                         println!("info string book move: {}", m);
-                        println!("bestmove {}{}{}", m.origin(), m.destination(), {
-                            if let Some(p) = m.promotion() {
-                                let c: char = p.into();
-                                String::from(c.to_ascii_lowercase())
-                            } else {
-                                String::from("")
-                            }
-                        });
+                        println!("bestmove {}", LongAlgebraicMoveNotation::from(m));
 
                         continue;
                     }
 
-                    let search = Search::spawn(current_position.clone(), rng.gen(), None);
+                    let search = Search::spawn(
+                        current_position.clone(),
+                        rng.gen(),
+                        None,
+                        previous_artifact.take(),
+                    );
+
                     current_search = Some(search);
                 }
                 Some((&"isready", _)) => {
@@ -67,7 +68,7 @@ impl Client {
                 }
                 Some((&"position", args)) => {
                     if let Some(search) = current_search.take() {
-                        search.wait_cancel();
+                        previous_artifact = Some(search.wait_cancel());
                     }
 
                     let (pos, moves) = args
@@ -147,7 +148,7 @@ impl Client {
                 }
                 Some((&"stop", _)) => {
                     if let Some(search) = current_search.take() {
-                        search.wait_cancel();
+                        previous_artifact = Some(search.wait_cancel());
                     }
                 }
                 Some((&"uci", _)) => {
@@ -181,7 +182,7 @@ impl Client {
         }
 
         if let Some(search) = current_search {
-            search.wait_cancel();
+            _ = search.wait_cancel();
         }
 
         Ok(())
@@ -190,18 +191,23 @@ impl Client {
 
 struct Search {
     start_time: std::time::Instant,
-    search_handle: thread::JoinHandle<()>,
     write_handle: thread::JoinHandle<()>,
+    search_handle: thread::JoinHandle<SearchArtifact>,
     control: mpsc::Sender<searcher::ControlEvent>,
 }
 
 impl Search {
-    pub fn spawn(state: State, rng_seed: u64, depth: Option<usize>) -> Self {
+    pub fn spawn(
+        state: State,
+        rng_seed: u64,
+        depth: Option<usize>,
+        previous_artifact: Option<SearchArtifact>,
+    ) -> Self {
         let searcher = Searcher::new();
         let evaluator = Evaluator::default();
         let start_time = std::time::Instant::now();
         let (search_handle, control, receiver) =
-            searcher.analyze(state, rng_seed, evaluator, depth);
+            searcher.analyze(state, rng_seed, evaluator, depth, previous_artifact);
 
         {
             // Start a timer to stop the search after a certain amount of time
@@ -222,23 +228,7 @@ impl Search {
                 match event {
                     searcher::StatusEvent::BestMove { line, evaluation } => {
                         println!("info score cp {}", evaluation.cp());
-                        println!(
-                            "info pv {}",
-                            line.iter()
-                                .map(|m| {
-                                    format!("{}{}{}", m.origin(), m.destination(), {
-                                        if let Some(p) = m.promotion() {
-                                            let c: char = p.into();
-                                            String::from(c.to_ascii_lowercase())
-                                        } else {
-                                            String::from("")
-                                        }
-                                    })
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        );
-
+                        println!("info pv {}", Pv::from(&line[..]));
                         best_line = line;
                     }
                     searcher::StatusEvent::Progress {
@@ -260,6 +250,9 @@ impl Search {
                             nps,
                             nodes_searched
                         );
+                    }
+                    searcher::StatusEvent::Warning { message, .. } => {
+                        println!("info string {}", message);
                     }
                 }
             }
@@ -286,9 +279,50 @@ impl Search {
         }
     }
 
-    pub fn wait_cancel(self) {
+    pub fn wait_cancel(self) -> SearchArtifact {
         _ = self.control.send(searcher::ControlEvent::Stop);
-        self.search_handle.join().unwrap();
+        let artifact = self.search_handle.join().unwrap();
         self.write_handle.join().unwrap();
+        artifact
+    }
+}
+
+struct LongAlgebraicMoveNotation<'a>(&'a Move);
+
+impl<'a> From<&'a Move> for LongAlgebraicMoveNotation<'a> {
+    fn from(mv: &'a Move) -> Self {
+        Self(mv)
+    }
+}
+
+impl<'a> Display for LongAlgebraicMoveNotation<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.0.origin(), self.0.destination())?;
+        if let Some(promotion) = self.0.promotion() {
+            write!(f, "{}", Into::<char>::into(promotion))?;
+        }
+
+        Ok(())
+    }
+}
+
+struct Pv<'a>(&'a [Move]);
+
+impl<'a> From<&'a [Move]> for Pv<'a> {
+    fn from(moves: &'a [Move]) -> Self {
+        Self(moves)
+    }
+}
+
+impl<'a> Display for Pv<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, mv) in self.0.iter().enumerate() {
+            write!(f, "{}", LongAlgebraicMoveNotation(mv))?;
+            if i < self.0.len() - 1 {
+                write!(f, " ")?;
+            }
+        }
+
+        Ok(())
     }
 }

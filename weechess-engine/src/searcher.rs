@@ -10,8 +10,8 @@ use std::{
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use weechess_core::{
-    Hash, Move, MoveGenerationBuffer, MoveGenerator, MoveResult, PieceIndex, PseudoLegalMove,
-    State, ZobristHasher,
+    Hash, Move, MoveGenerationBuffer, MoveGenerator, MoveResult, PseudoLegalMove, State,
+    ZobristHasher,
 };
 
 use crate::eval::{self, Evaluation};

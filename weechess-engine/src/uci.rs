@@ -18,7 +18,7 @@ use weechess_core::{
     Move, MoveQuery, Piece, Square, State,
 };
 
-const MAX_SEARCH_TIME: f64 = 4.0;
+const DEFAULT_MAX_SEARCH_TIME: f64 = 4.0;
 
 // Reference: https://gist.github.com/DOBRO/2592c6dad754ba67e6dcaec8c90165bf
 
@@ -39,9 +39,39 @@ impl Client {
         while let Some(Ok(cmd)) = input.next() {
             let parts: Vec<&str> = cmd.split_ascii_whitespace().collect();
             match parts.split_first() {
-                Some((&"go", _)) => {
+                Some((&"go", args)) => {
                     if let Some(search) = current_search.take() {
                         previous_artifact = Some(search.wait_cancel());
+                    }
+
+                    let mut search_time: Option<f64> = None;
+                    let mut search_depth: Option<usize> = None;
+
+                    // Parse the arguments
+                    let mut iter = args.iter();
+                    while let Some(arg) = iter.next() {
+                        match *arg {
+                            "movetime" => {
+                                if let Some(time) = iter.next() {
+                                    if let Ok(movetime_ms) = i32::from_str_radix(time, 10) {
+                                        search_time = Some(movetime_ms as f64 / 1000.0);
+                                        continue;
+                                    }
+                                }
+                            }
+                            "depth" => {
+                                if let Some(depth) = iter.next() {
+                                    if let Ok(depth) = usize::from_str_radix(depth, 10) {
+                                        search_depth = Some(depth);
+                                        continue;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        println!("info string unparsable go commands");
+                        break;
                     }
 
                     // TODO: Do we always want to pick a book move?
@@ -57,7 +87,8 @@ impl Client {
                     let search = Search::spawn(
                         current_position.clone(),
                         rng.gen(),
-                        None,
+                        search_depth,
+                        search_time,
                         previous_artifact.take(),
                     );
 
@@ -201,6 +232,7 @@ impl Search {
         state: State,
         rng_seed: u64,
         depth: Option<usize>,
+        search_time: Option<f64>,
         previous_artifact: Option<SearchArtifact>,
     ) -> Self {
         let searcher = Searcher::new();
@@ -212,8 +244,9 @@ impl Search {
         {
             // Start a timer to stop the search after a certain amount of time
             let timer_stop = control.clone();
+            let max_search_time = search_time.unwrap_or(DEFAULT_MAX_SEARCH_TIME);
             _ = thread::spawn(move || loop {
-                if start_time.elapsed().as_secs_f64() >= MAX_SEARCH_TIME {
+                if start_time.elapsed().as_secs_f64() >= max_search_time {
                     _ = timer_stop.send(searcher::ControlEvent::Stop);
                     break;
                 }

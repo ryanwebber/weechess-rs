@@ -125,10 +125,6 @@ pub struct Centipawn(f32);
 
 impl Display for Centipawn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0 >= 0.0 {
-            write!(f, "+")?;
-        }
-
         write!(f, "{:.1}", self.0)
     }
 }
@@ -192,6 +188,7 @@ impl<'a> From<&'a State> for StateVariation<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct Evaluator {
     fns: &'static [(f32, EvaluationFunction)],
 }

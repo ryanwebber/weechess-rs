@@ -332,7 +332,7 @@ impl<'a> Display for LongAlgebraicMoveNotation<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}", self.0.origin(), self.0.destination())?;
         if let Some(promotion) = self.0.promotion() {
-            write!(f, "{}", Into::<char>::into(promotion))?;
+            write!(f, "{}", Into::<char>::into(promotion).to_ascii_lowercase())?;
         }
 
         Ok(())

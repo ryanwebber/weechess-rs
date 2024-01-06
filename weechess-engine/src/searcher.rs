@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, RwLock,
     },
     thread,
 };
@@ -16,7 +16,14 @@ use weechess_core::{
 
 use crate::eval::{self, Evaluation};
 
+use rayon::prelude::*;
+
 const DEFAULT_TRANSPOSITION_TABLE_SIZE_MB: usize = 1024;
+
+// There's a balance to this right now between lock contention
+// and the amount of work that can be shared between threads. This
+// value seems to be a good balance on my machine right now.
+const DEFAULT_MAX_THREAD_COUNT: usize = 8;
 
 type RandomNumberGenerator = ChaCha8Rng;
 
@@ -126,42 +133,110 @@ impl Searcher {
         let max_depth = max_depth.unwrap_or(usize::MAX);
         let mut rng = rng;
 
-        let (mut state_history, mut transpositions) = previous_artifact
-            .map(|artifact| (artifact.state_history, artifact.transpositions))
+        let (hasher, transpositions, mut state_history) = previous_artifact
+            .map(|a| (a.hasher, a.transpositions, a.state_history))
             .unwrap_or_else(|| {
+                let hasher = ZobristHasher::with(&mut rng);
                 let state_history = StateHistory::new();
                 let transpositions: TranspositionTable = TranspositionTable::with_memory(
                     DEFAULT_TRANSPOSITION_TABLE_SIZE_MB * 1024 * 1024,
-                    ZobristHasher::with(&mut rng),
                 );
 
-                (state_history, transpositions)
+                (hasher, transpositions, state_history)
             });
 
+        let game_state_hash = hasher.hash(&game_state);
         let mut nodes_searched = 0;
-        let mut move_buffer = Vec::new();
-
         let mut best_eval = eval::Evaluation::NEG_INF;
         let mut best_mv = None;
 
+        // We need to wrap the transposition table in a lock so it can be used
+        // across threads effectively. We're using a read-write lock here because the
+        // majority of our table access will be read accesses, which we can do in parallel
+        let mut transpositions = RwLock::new(transpositions);
+
         for depth in 0..max_depth {
-            match Self::analyze_recursive(
-                &game_state,
-                &evaluator,
-                &token,
-                &state_history,
-                depth + 1,
-                0,
-                0,
-                eval::Evaluation::NEG_INF,
-                eval::Evaluation::POS_INF,
-                best_mv,
-                &mut rng,
-                &mut transpositions,
-                &mut move_buffer,
-                &mut nodes_searched,
-            ) {
-                Ok(e) => {
+            // Don't bother doing multiple threads if we're only searching a few moves
+            // as the OS overhead will likely outweigh the benefits of parallelism
+            let thread_count = if depth < 3 {
+                1
+            } else {
+                usize::min(rayon::max_num_threads(), DEFAULT_MAX_THREAD_COUNT)
+            };
+
+            struct ThreadData {
+                rng: ChaCha8Rng,
+                game_state: State,
+                best_move: Option<Move>,
+                search_depth: usize,
+            }
+
+            // This is a variation of lazy SMP. We rely on the non-determanistic
+            // nature of move ordering and the transposition table to introduce parallelism
+            let thread_data: Vec<_> = (0..thread_count)
+                .map(|i| ThreadData {
+                    rng: ChaCha8Rng::seed_from_u64(rng.gen()),
+                    game_state: game_state.clone(),
+                    search_depth: {
+                        // We want a variety of search depths across the threads
+                        let stop_short = i % 2;
+                        depth.saturating_sub(stop_short) + 1
+                    },
+                    best_move: if i == 0 {
+                        // Only the first thread needs to search the best move,
+                        // otherwise we're just doing duplicate work at the top
+                        best_mv
+                    } else {
+                        None
+                    },
+                })
+                .collect();
+
+            let results: Result<Vec<_>, SearchInterrupt> = {
+                thread_data
+                    .into_par_iter()
+                    .map(|data| {
+                        let game_state = data.game_state;
+                        let best_move = data.best_move;
+                        let search_depth = data.search_depth;
+                        let mut rng = data.rng;
+                        let mut nodes_searched = 0;
+                        let mut move_buffer = Vec::new();
+
+                        let result: Result<Evaluation, SearchInterrupt> = Self::analyze_recursive(
+                            &game_state,
+                            &evaluator,
+                            &token,
+                            &hasher,
+                            &state_history,
+                            &transpositions,
+                            search_depth,
+                            0,
+                            0,
+                            eval::Evaluation::NEG_INF,
+                            eval::Evaluation::POS_INF,
+                            best_move,
+                            &mut rng,
+                            &mut move_buffer,
+                            &mut nodes_searched,
+                        );
+
+                        result.map(|eval| (eval, nodes_searched))
+                    })
+                    .collect()
+            };
+
+            // This should be safe since our search threads have finished
+            let transpositions = transpositions.get_mut().unwrap();
+
+            match results {
+                Ok(evaluations) => {
+                    // Tally up the nodes searched across all threads
+                    nodes_searched += evaluations.iter().map(|(_, n)| n).sum::<usize>();
+
+                    // Find the best evaluation across all threads
+                    best_eval = *evaluations.iter().map(|(e, _)| e).max().unwrap();
+
                     f(StatusEvent::Progress {
                         depth: (depth + 1) as u32,
                         nodes_searched,
@@ -169,11 +244,10 @@ impl Searcher {
                     });
 
                     let line: Vec<Move> = transpositions
-                        .iter_moves(&game_state, depth)
+                        .iter_moves(&hasher, &game_state, depth)
                         .map(|r| r.0)
                         .collect();
 
-                    best_eval = e;
                     best_mv = line.first().copied();
 
                     assert!(!line.is_empty());
@@ -190,18 +264,18 @@ impl Searcher {
                     });
 
                     f(StatusEvent::BestMove {
-                        evaluation: e,
+                        evaluation: best_eval,
                         line,
                     });
                 }
                 Err(SearchInterrupt) => {
-                    if let Some(x) = transpositions.find(&game_state) {
+                    if let Some(x) = transpositions.find(game_state_hash) {
                         if x.evaluation > best_eval {
                             f(StatusEvent::BestMove {
                                 evaluation: x.evaluation,
                                 line: {
                                     let line: Vec<Move> = transpositions
-                                        .iter_moves(&game_state, depth)
+                                        .iter_moves(&hasher, &game_state, depth)
                                         .map(|r| r.0)
                                         .collect();
 
@@ -223,6 +297,9 @@ impl Searcher {
             }
         }
 
+        // We're done with the lock on transpositions, let's get it back
+        let transpositions = transpositions.into_inner().unwrap();
+
         if transpositions.saturation() > 0.5 {
             f(StatusEvent::Warning {
                 kind: WarningKind::TranspositionTableSaturated,
@@ -234,9 +311,10 @@ impl Searcher {
         }
 
         // Mark that we've seen this state - this will help us avoid draws by repetition in winning states
-        state_history.increment(transpositions.hasher.hash(&game_state));
+        state_history.increment(hasher.hash(&game_state));
 
         SearchArtifact {
+            hasher,
             transpositions,
             state_history,
         }
@@ -246,28 +324,19 @@ impl Searcher {
         game_state: &State,
         evaluator: &eval::Evaluator,
         token: &CancellationToken,
+        hasher: &ZobristHasher,
         state_history: &StateHistory,
+        transpositions: &RwLock<TranspositionTable>,
         max_depth: usize,
         current_depth: usize,
         current_extension: usize,
         alpha: eval::Evaluation,
         beta: eval::Evaluation,
-        best_move: Option<Move>,
+        prioritized_move: Option<Move>,
         rng: &mut ChaCha8Rng,
-        transpositions: &mut TranspositionTable,
         move_buffer: &mut Vec<PseudoLegalMove>,
         nodes_searched: &mut usize,
     ) -> Result<eval::Evaluation, SearchInterrupt> {
-        // Make sure we have a best move to search. Without this, we may end
-        // up picking arbitrary moves when the search is cancelled
-        assert!({
-            if current_depth == 0 && max_depth > 1 {
-                best_move.is_some()
-            } else {
-                true
-            }
-        });
-
         // We're searching a new node here
         *nodes_searched += 1;
 
@@ -281,8 +350,8 @@ impl Searcher {
         let mut beta = beta;
 
         // Pre-compute the hash since we use it for checking draws
-        //  by repetition and as a key into the transposition table
-        let state_hash = transpositions.hasher.hash(game_state);
+        // by repetition and as a key into the transposition table
+        let state_hash = hasher.hash(game_state);
 
         // Early check for draws by repetition
         if current_depth > 0 && state_history.lookup(&state_hash).is_some() {
@@ -292,26 +361,30 @@ impl Searcher {
 
         // First thing to do is check the transposition table to see if we've
         // searched this position to a greater depth than we're about to search now
-        if let Some(entry) = transpositions.find_prehashed(state_hash) {
-            let remaining_depth = max_depth - current_depth;
-            let remaining_depth_in_transposition = entry.max_depth - entry.depth;
-            if remaining_depth_in_transposition >= remaining_depth {
-                // We've already searched this position to a greater depth than we're
-                // about to search now, so we can use the existing evaluation
-                match entry.kind {
-                    EvaluationKind::Exact => {
+        {
+            // Grab read access to the transposition table and release it asap
+            let transposition_entry = { transpositions.read().unwrap().find(state_hash).copied() };
+            if let Some(entry) = transposition_entry {
+                let remaining_depth = max_depth - current_depth;
+                let remaining_depth_in_transposition = entry.max_depth - entry.depth;
+                if remaining_depth_in_transposition >= remaining_depth {
+                    // We've already searched this position to a greater depth than we're
+                    // about to search now, so we can use the existing evaluation
+                    match entry.kind {
+                        EvaluationKind::Exact => {
+                            return Ok(entry.evaluation);
+                        }
+                        EvaluationKind::UpperBound => {
+                            beta = beta.min(entry.evaluation);
+                        }
+                        EvaluationKind::LowerBound => {
+                            alpha = alpha.max(entry.evaluation);
+                        }
+                    }
+
+                    if alpha >= beta {
                         return Ok(entry.evaluation);
                     }
-                    EvaluationKind::UpperBound => {
-                        beta = beta.min(entry.evaluation);
-                    }
-                    EvaluationKind::LowerBound => {
-                        alpha = alpha.max(entry.evaluation);
-                    }
-                }
-
-                if alpha >= beta {
-                    return Ok(entry.evaluation);
                 }
             }
         }
@@ -338,19 +411,25 @@ impl Searcher {
             let mut estimation = evaluator.estimate(game_state, mv);
 
             // Add a bit of jiggle to the estimation so that we don't always
-            // search the same moves first
-            estimation += Evaluation::from(rng.gen_range(-25..=25));
+            // search the same moves first. This range needs to be small enough
+            // that we don't waste too much time searching bad moves first but
+            // large enough that we don't always search the same moves first
+            // which would negatively impact the multi-threaded performance.
+            estimation += Evaluation::from(rng.gen_range(-5..=5));
 
             estimation
         });
 
-        // If we have a best move from the previous iteration, let's search that first
-        if let Some(best_move) = best_move {
-            move_buffer.push(PseudoLegalMove::new(best_move))
+        // If we have a best move from the previous iteration, let's search that first.
+        // We'll end up searching for this move a second time because it's in the move
+        // list twice, but the transposition table will take care of that, and we only
+        // hit this on depth=0 anyways.
+        if let Some(mv) = prioritized_move {
+            move_buffer.push(PseudoLegalMove::new(mv))
         }
 
         // Create a shared buffer for the recursive calls to use to avoid excessive allocations
-        let mut next_buffer = Vec::new();
+        let mut next_buffer: Vec<PseudoLegalMove> = Vec::new();
 
         // Keep track of where we started this search
         let previous_nodes_searched = *nodes_searched;
@@ -376,7 +455,9 @@ impl Searcher {
                 &new_state,
                 evaluator,
                 token,
+                hasher,
                 state_history,
+                transpositions,
                 max_depth + extension,
                 current_depth + 1 + extension,
                 current_extension + extension,
@@ -384,7 +465,6 @@ impl Searcher {
                 -alpha,
                 None,
                 rng,
-                transpositions,
                 &mut next_buffer,
                 nodes_searched,
             )?;
@@ -393,8 +473,9 @@ impl Searcher {
             // this position. We can stop searching this position because we know that the
             // opponent will never allow us to reach this position
             if evaluation >= beta {
+                let mut transpositions = transpositions.write().unwrap();
                 transpositions.insert(
-                    game_state,
+                    state_hash,
                     TranspositionEntry {
                         kind: EvaluationKind::LowerBound,
                         performed_move: mv,
@@ -421,8 +502,9 @@ impl Searcher {
         }
 
         if let Some(best_move) = best_move {
+            let mut transpositions = transpositions.write().unwrap();
             transpositions.insert(
-                game_state,
+                state_hash,
                 TranspositionEntry {
                     kind: evaluation_type,
                     performed_move: best_move,
@@ -565,51 +647,45 @@ enum EvaluationKind {
 struct SearchInterrupt;
 
 struct TranspositionTable {
-    hasher: ZobristHasher,
     buckets: Vec<TranspositionBucket>,
     used_slots: usize,
 }
 
 impl TranspositionTable {
-    fn with_bucket_count(size: usize, hasher: ZobristHasher) -> Self {
+    fn with_bucket_count(size: usize) -> Self {
         Self {
-            hasher,
             buckets: vec![TranspositionBucket::empty(); size],
             used_slots: 0,
         }
     }
 
-    fn with_memory(size_in_bytes: usize, hasher: ZobristHasher) -> Self {
+    fn with_memory(size_in_bytes: usize) -> Self {
         let size_of_bucket = std::mem::size_of::<TranspositionBucket>();
         let count = size_in_bytes / size_of_bucket;
-        Self::with_bucket_count(count, hasher)
+        Self::with_bucket_count(count)
     }
 
-    fn find(&self, state: &State) -> Option<&TranspositionEntry> {
-        let hash = self.hasher.hash(state);
-        self.find_prehashed(hash)
-    }
-
-    fn find_prehashed(&self, hash: Hash) -> Option<&TranspositionEntry> {
+    fn find(&self, hash: Hash) -> Option<&TranspositionEntry> {
         let bucket = hash as usize % self.buckets.len();
         self.buckets[bucket].find(hash)
     }
 
     fn iter_moves<'a>(
         &'a self,
+        hasher: &'a ZobristHasher,
         state: &State,
         max_depth: usize,
     ) -> impl Iterator<Item = MoveResult> + 'a {
         TranspositionTableMoveIterator {
             table: self,
+            hasher,
             max_depth,
             current_index: 0,
             current_game_state: state.clone(),
         }
     }
 
-    fn insert(&mut self, state: &State, entry: TranspositionEntry) {
-        let hash = self.hasher.hash(state);
+    fn insert(&mut self, hash: Hash, entry: TranspositionEntry) {
         let index = hash as usize % self.buckets.len();
         if self.buckets[index]
             .insert_or_replace(hash, entry)
@@ -708,6 +784,7 @@ struct TranspositionEntry {
 
 struct TranspositionTableMoveIterator<'a> {
     table: &'a TranspositionTable,
+    hasher: &'a ZobristHasher,
     max_depth: usize,
     current_index: usize,
     current_game_state: State,
@@ -721,7 +798,8 @@ impl Iterator for TranspositionTableMoveIterator<'_> {
             return None;
         }
 
-        let Some(entry) = self.table.find(&self.current_game_state) else {
+        let hash = self.hasher.hash(&self.current_game_state);
+        let Some(entry) = self.table.find(hash) else {
             return None;
         };
 
@@ -738,6 +816,7 @@ impl Iterator for TranspositionTableMoveIterator<'_> {
     }
 }
 
+#[derive(Clone)]
 struct StateHistory {
     states: HashMap<Hash, usize>,
 }
@@ -759,6 +838,7 @@ impl StateHistory {
 }
 
 pub struct SearchArtifact {
+    hasher: ZobristHasher,
     transpositions: TranspositionTable,
     state_history: StateHistory,
 }
@@ -791,7 +871,7 @@ mod tests {
     use super::*;
     use weechess_core::{
         notation::{self, into_notation, Fen, Peg},
-        Color, Piece, Square,
+        Color, Piece, PieceIndex, Square,
     };
 
     #[test]
@@ -860,9 +940,11 @@ mod tests {
     fn test_transposition_table() {
         let state = State::default();
         let mut rng = ChaCha8Rng::seed_from_u64(0);
-        let hasher = ZobristHasher::with(&mut rng);
 
-        let mut table = TranspositionTable::with_bucket_count(1024, hasher);
+        let hasher = ZobristHasher::with(&mut rng);
+        let state_hash = hasher.hash(&state);
+
+        let mut table = TranspositionTable::with_bucket_count(1024);
         let entry = TranspositionEntry {
             kind: EvaluationKind::Exact,
             performed_move: Move::by_moving(
@@ -875,11 +957,11 @@ mod tests {
             evaluation: eval::Evaluation::ONE_PAWN,
         };
 
-        table.insert(&state, entry);
-        assert!(table.find(&state).is_some());
+        table.insert(state_hash, entry);
+        assert!(table.find(state_hash).is_some());
         assert_eq!(table.entries(), 1);
 
-        table.insert(&state, entry);
+        table.insert(state_hash, entry);
         assert_eq!(
             table.entries(),
             1,
@@ -890,23 +972,25 @@ mod tests {
 
     #[test]
     fn test_transposition_table_collisions() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let hasher = ZobristHasher::with(&mut rng);
+
         let s1 = notation::try_from_notation::<_, Fen>(
             "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1",
         )
+        .map(|s| hasher.hash(&s))
         .unwrap();
 
         let s2 = notation::try_from_notation::<_, Fen>(
             "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
         )
+        .map(|s| hasher.hash(&s))
         .unwrap();
 
-        let mut rng = ChaCha8Rng::seed_from_u64(0);
-        let hasher = ZobristHasher::with(&mut rng);
-
-        let mut table = TranspositionTable::with_bucket_count(1, hasher);
+        let mut table = TranspositionTable::with_bucket_count(1);
 
         table.insert(
-            &s1,
+            s1,
             TranspositionEntry {
                 kind: EvaluationKind::Exact,
                 performed_move: Move::by_moving(
@@ -921,7 +1005,7 @@ mod tests {
         );
 
         table.insert(
-            &s2,
+            s2,
             TranspositionEntry {
                 kind: EvaluationKind::Exact,
                 performed_move: Move::by_moving(
@@ -937,8 +1021,8 @@ mod tests {
 
         assert_eq!(table.entries(), 2);
 
-        let e1 = table.find(&s1).unwrap();
-        let e2 = table.find(&s2).unwrap();
+        let e1 = table.find(s1).unwrap();
+        let e2 = table.find(s2).unwrap();
         assert!(e1.performed_move != e2.performed_move);
     }
 }

@@ -90,6 +90,7 @@ impl Searcher {
                     max_depth,
                     listen_token,
                     previous_artifact,
+                    None,
                     &mut |event| {
                         // This can error if the receiver drops their end. That's ok
                         _ = sink.send(event);
@@ -125,6 +126,7 @@ impl Searcher {
         max_depth: Option<usize>,
         token: CancellationToken,
         previous_artifact: Option<SearchArtifact>,
+        max_thread_count: Option<usize>,
         f: &mut F,
     ) -> SearchArtifact
     where
@@ -150,6 +152,9 @@ impl Searcher {
         let mut best_eval = eval::Evaluation::NEG_INF;
         let mut best_mv = None;
 
+        // Mark that we've seen this state - this will help us avoid draws by repetition in winning states
+        state_history.increment(game_state_hash);
+
         // We need to wrap the transposition table in a lock so it can be used
         // across threads effectively. We're using a read-write lock here because the
         // majority of our table access will be read accesses, which we can do in parallel
@@ -158,11 +163,13 @@ impl Searcher {
         for depth in 0..max_depth {
             // Don't bother doing multiple threads if we're only searching a few moves
             // as the OS overhead will likely outweigh the benefits of parallelism
-            let thread_count = if depth < 3 {
-                1
-            } else {
-                usize::min(rayon::max_num_threads(), DEFAULT_MAX_THREAD_COUNT)
-            };
+            let thread_count = max_thread_count.unwrap_or_else(|| {
+                if depth < 3 {
+                    1
+                } else {
+                    usize::min(rayon::max_num_threads(), DEFAULT_MAX_THREAD_COUNT)
+                }
+            });
 
             struct ThreadData {
                 rng: ChaCha8Rng,
@@ -213,8 +220,8 @@ impl Searcher {
                             search_depth,
                             0,
                             0,
-                            eval::Evaluation::NEG_INF,
-                            eval::Evaluation::POS_INF,
+                            -eval::Evaluation::mate_in_ply(0),
+                            eval::Evaluation::mate_in_ply(0),
                             best_move,
                             &mut rng,
                             &mut move_buffer,
@@ -267,6 +274,17 @@ impl Searcher {
                         evaluation: best_eval,
                         line,
                     });
+
+                    // The best line in this position will lead to a forced mate
+                    if best_eval >= eval::Evaluation::POS_INF {
+                        // TODO: If this mate came from a quiessence search line
+                        // then there may be a better mate with depth greater than
+                        // the current search depth but less than this quiessence
+                        // search went. We should probably search for better mates
+                        // somehow, but for now we'll just end search and use the
+                        // forced mate line
+                        break;
+                    }
                 }
                 Err(SearchInterrupt) => {
                     if let Some(x) = transpositions.find(game_state_hash) {
@@ -290,11 +308,6 @@ impl Searcher {
                     break;
                 }
             }
-
-            // If we've reached a terminal position, we can stop searching
-            if best_eval.is_terminal() {
-                break;
-            }
         }
 
         // We're done with the lock on transpositions, let's get it back
@@ -309,9 +322,6 @@ impl Searcher {
                 ),
             });
         }
-
-        // Mark that we've seen this state - this will help us avoid draws by repetition in winning states
-        state_history.increment(hasher.hash(&game_state));
 
         SearchArtifact {
             hasher,
@@ -394,7 +404,7 @@ impl Searcher {
         // here. In reality, we're probably about to lose our queen for that pawn, so
         // we need to exaust all captures in the current position before we evaluate it
         if current_depth >= max_depth {
-            return Self::quiescence_search(game_state, evaluator, alpha, beta);
+            return Self::quiescence_search(game_state, evaluator, current_depth, alpha, beta);
         }
 
         let mut evaluation_type = EvaluationKind::UpperBound;
@@ -497,7 +507,8 @@ impl Searcher {
 
         // We didn't have any legal moves, so this is checkmate or stalemate
         if previous_nodes_searched == *nodes_searched {
-            let evaluation = evaluator.evaluate(game_state, game_state.turn_to_move());
+            let evaluation =
+                evaluator.evaluate(game_state, game_state.turn_to_move(), current_depth);
             return Ok(evaluation);
         }
 
@@ -525,6 +536,7 @@ impl Searcher {
     fn quiescence_search(
         game_state: &State,
         evaluator: &eval::Evaluator,
+        depth: usize,
         alpha: eval::Evaluation,
         beta: eval::Evaluation,
     ) -> Result<eval::Evaluation, SearchInterrupt> {
@@ -533,11 +545,11 @@ impl Searcher {
 
         // Don't bother searching further, this is checkmate or stalemate
         if buffer.legal_moves.is_empty() {
-            return Ok(evaluator.evaluate(game_state, game_state.turn_to_move()));
+            return Ok(evaluator.evaluate(game_state, game_state.turn_to_move(), depth));
         }
 
         let is_quiet = buffer.legal_moves.iter().all(|m| !m.0.is_capture());
-        let normal_eval = evaluator.evaluate(game_state, game_state.turn_to_move());
+        let normal_eval = evaluator.evaluate(game_state, game_state.turn_to_move(), depth);
 
         let mut alpha = alpha;
 
@@ -573,7 +585,8 @@ impl Searcher {
                 continue;
             }
 
-            let evaluation = -Self::quiescence_search(new_state, evaluator, -beta, -alpha)?;
+            let evaluation =
+                -Self::quiescence_search(new_state, evaluator, depth + 1, -beta, -alpha)?;
             if evaluation >= beta {
                 return Ok(beta);
             }
@@ -870,9 +883,42 @@ impl CancellationToken {
 mod tests {
     use super::*;
     use weechess_core::{
-        notation::{self, into_notation, Fen, Peg},
+        notation::{self, into_notation, lan::Lan, Fen},
         Color, Piece, PieceIndex, Square,
     };
+
+    fn evaluate(
+        game_state: State,
+        rng: RandomNumberGenerator,
+        depth: usize,
+        prev_artifact: Option<SearchArtifact>,
+    ) -> (eval::Evaluation, Vec<Move>) {
+        let cancel_token = CancellationToken::new().0;
+        let evaluator = eval::Evaluator::default();
+        let mut result = None;
+        _ = Searcher::analyze_iterative(
+            game_state,
+            &evaluator,
+            rng,
+            Some(depth),
+            cancel_token,
+            prev_artifact,
+            Some(1),
+            &mut |e| match e {
+                StatusEvent::BestMove { line, evaluation } => {
+                    println!(
+                        "Best line: ({}) {}",
+                        into_notation::<_, Lan>(&&line[..]),
+                        evaluation
+                    );
+                    result = Some((evaluation, line));
+                }
+                _ => {}
+            },
+        );
+
+        result.unwrap()
+    }
 
     #[test]
     fn test_termination() {
@@ -901,39 +947,18 @@ mod tests {
 
     #[test]
     fn test_find_forced_mate_in_3() {
-        let searcher = Searcher::new();
-        let evaluator = eval::Evaluator::default();
         let state = notation::try_from_notation::<_, Fen>(
             "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 1",
         )
         .unwrap();
 
-        let (handle, _tx, rx) = searcher.analyze(state, 0, evaluator, None, None);
+        let rng = ChaCha8Rng::seed_from_u64(0);
+        let (eval, line) = evaluate(state, rng, 4, None);
+        let best_move = line.first().unwrap();
 
-        let best_move = rx
-            .into_iter()
-            .filter_map(|ev| match ev {
-                StatusEvent::BestMove { line, evaluation } => {
-                    if let Some(mv) = line.first() {
-                        Some((*mv, evaluation))
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            })
-            .inspect(|i| {
-                let notated_move = into_notation::<_, Peg>(&i.0).to_string();
-                println!("{} {}", notated_move, i.1);
-            })
-            .last()
-            .unwrap();
-
-        handle.join().unwrap();
-
-        assert_eq!(best_move.0.origin(), Square::C4);
-        assert_eq!(best_move.0.destination(), Square::B5);
-        assert!(best_move.1 >= eval::Evaluation::mate_in(3));
+        assert_eq!(best_move.origin(), Square::C4);
+        assert_eq!(best_move.destination(), Square::B5);
+        assert!(eval >= eval::Evaluation::mate_in_ply(100));
     }
 
     #[test]
@@ -1024,5 +1049,69 @@ mod tests {
         let e1 = table.find(s1).unwrap();
         let e2 = table.find(s2).unwrap();
         assert!(e1.performed_move != e2.performed_move);
+    }
+
+    #[test]
+    fn test_avoid_draws_by_repitition() {
+        let game_state =
+            // Forced mate in 1, but we'll test the engine by making that move a draw
+            notation::try_from_notation::<_, Fen>("8/8/8/8/8/k2r4/8/K7 b - - 4 3").unwrap();
+
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let hasher = ZobristHasher::with(&mut rng);
+
+        // Arbirtrary depth past checkmate but still fast to search
+        let depth = 5;
+
+        {
+            // First pass, let's make sure the evaluator will pick the easy mate
+            // without any draw by repitition concerns
+            let artifact = SearchArtifact {
+                hasher: hasher.clone(),
+                transpositions: TranspositionTable::with_bucket_count(1024),
+                state_history: StateHistory::new(),
+            };
+
+            let (eval, line) = evaluate(game_state.clone(), rng.clone(), depth, Some(artifact));
+
+            assert!(eval > Evaluation::EVEN);
+            assert_eq!(
+                *line.first().unwrap(),
+                Move::by_moving(
+                    PieceIndex::new(Color::Black, Piece::Rook),
+                    Square::D3,
+                    Square::D1
+                ),
+            );
+        }
+
+        {
+            // Second pass, let's make sure the evaluator will pick a different
+            // path to mate, avoiding the draw by repitition
+            let artifact = SearchArtifact {
+                hasher: hasher.clone(),
+                transpositions: TranspositionTable::with_bucket_count(1024),
+                state_history: {
+                    let mut history = StateHistory::new();
+                    let previous_game_state =
+                        notation::try_from_notation::<_, Fen>("8/8/8/8/8/k7/8/K2r4 w - - 5 4")
+                            .unwrap();
+
+                    history.increment(hasher.hash(&previous_game_state));
+                    history
+                },
+            };
+
+            let (eval, line) = evaluate(game_state.clone(), rng.clone(), depth, Some(artifact));
+            assert!(eval > Evaluation::EVEN);
+            assert_ne!(
+                *line.first().unwrap(),
+                Move::by_moving(
+                    PieceIndex::new(Color::Black, Piece::Rook),
+                    Square::D3,
+                    Square::D1
+                )
+            );
+        }
     }
 }

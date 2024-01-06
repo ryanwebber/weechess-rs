@@ -4,6 +4,7 @@ use crate::{utils::ArrayMap, Color, Piece, PieceIndex, Square, State};
 
 pub type Hash = u64;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZobristHasher {
     turn_hash: ArrayMap<Color, u64>,
     piece_hash: ArrayMap<Square, ArrayMap<PieceIndex, u64>>,

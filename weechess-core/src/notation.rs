@@ -4,7 +4,10 @@ pub use fen::*;
 pub use peg::*;
 pub use san::*;
 
-pub trait IntoNotation<Value> {
+pub trait IntoNotation<Value>
+where
+    Value: ?Sized,
+{
     fn into_notation(value: &Value, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
@@ -546,6 +549,38 @@ mod san {
             }
 
             Ok(query)
+        }
+    }
+}
+
+pub mod lan {
+    use crate::Move;
+
+    use super::{into_notation, IntoNotation};
+
+    pub struct Lan;
+
+    impl IntoNotation<Move> for Lan {
+        fn into_notation(value: &Move, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}{}", value.origin(), value.destination())?;
+            if let Some(promotion) = value.promotion() {
+                write!(f, "{}", Into::<char>::into(promotion).to_ascii_lowercase())?;
+            }
+
+            Ok(())
+        }
+    }
+
+    impl IntoNotation<&[Move]> for Lan {
+        fn into_notation(value: &&[Move], f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for (i, mv) in value.iter().enumerate() {
+                write!(f, "{}", into_notation::<_, Lan>(mv))?;
+                if i < value.len() - 1 {
+                    write!(f, " ")?;
+                }
+            }
+
+            Ok(())
         }
     }
 }

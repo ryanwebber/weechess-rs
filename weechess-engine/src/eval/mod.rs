@@ -98,8 +98,9 @@ impl Evaluation {
     pub const POS_INF: Evaluation = Evaluation(Self::ONE_PAWN.0 * 100);
     pub const NEG_INF: Evaluation = Evaluation(Self::ONE_PAWN.0 * -100);
 
-    pub fn mate_in(_ply: usize) -> Evaluation {
-        Evaluation::POS_INF
+    pub fn mate_in_ply(ply: usize) -> Evaluation {
+        // Give a little bonus for faster mates
+        Evaluation::POS_INF + Evaluation::ONE_PAWN * i32::max(10 - (ply as i32), 0)
     }
 
     pub fn is_terminal(self) -> bool {
@@ -258,7 +259,7 @@ impl Evaluator {
         eval
     }
 
-    pub fn evaluate(&self, state: &State, perspective: Color) -> Evaluation {
+    pub fn evaluate(&self, state: &State, perspective: Color, depth: usize) -> Evaluation {
         let v = StateVariation::from(state);
 
         let king_has_move = {
@@ -280,9 +281,9 @@ impl Evaluator {
             let legal_moves = MoveGenerator::compute_legal_moves(state);
             if legal_moves.is_empty() && state.is_check() {
                 return if state.turn_to_move() == perspective {
-                    Evaluation::NEG_INF
+                    -Evaluation::mate_in_ply(depth)
                 } else {
-                    Evaluation::POS_INF
+                    Evaluation::mate_in_ply(depth)
                 };
             } else if legal_moves.is_empty() {
                 return Evaluation::EVEN;
@@ -312,24 +313,6 @@ impl Evaluator {
 
         eval
     }
-
-    pub fn sum_material(&self, state: &State, perspective: &Color) -> Evaluation {
-        let mut eval = Evaluation::EVEN;
-        for color in Color::ALL {
-            let multiplier = if *color == *perspective { 1 } else { -1 };
-            for piece in Piece::ALL {
-                let piece_index = PieceIndex::new(*color, *piece);
-                let piece_occupancy = state.board().piece_occupancy(piece_index);
-                let piece_count = piece_occupancy.count_ones() as u8;
-                eval += Evaluation::ONE_PAWN
-                    * PIECE_PAWN_WORTHS[*piece]
-                    * piece_count as i32
-                    * multiplier;
-            }
-        }
-
-        eval
-    }
 }
 
 #[cfg(test)]
@@ -346,12 +329,12 @@ mod tests {
         let game_state = State::default();
 
         assert_eq!(
-            evaluator.evaluate(&game_state, Color::White),
+            evaluator.evaluate(&game_state, Color::White, 0),
             Evaluation::EVEN
         );
 
         assert_eq!(
-            evaluator.evaluate(&game_state, Color::Black),
+            evaluator.evaluate(&game_state, Color::Black, 0),
             Evaluation::EVEN
         );
     }
@@ -362,12 +345,12 @@ mod tests {
         let game_state = State::default();
 
         assert_eq!(
-            evaluator.evaluate(&game_state, Color::White),
+            evaluator.evaluate(&game_state, Color::White, 0),
             Evaluation::EVEN
         );
 
         assert_eq!(
-            evaluator.evaluate(&game_state, Color::Black),
+            evaluator.evaluate(&game_state, Color::Black, 0),
             Evaluation::EVEN
         );
     }
@@ -388,8 +371,8 @@ mod tests {
         let game_state =
             try_from_notation::<_, Fen>("4k3/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1").unwrap();
 
-        let e1 = Evaluator::default().evaluate(&game_state, Color::White);
-        let e2 = Evaluator::default().evaluate(&game_state, Color::Black);
+        let e1 = Evaluator::default().evaluate(&game_state, Color::White, 0);
+        let e2 = Evaluator::default().evaluate(&game_state, Color::Black, 0);
         assert!(e1 > e2);
     }
 }

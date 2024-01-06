@@ -147,12 +147,12 @@ mod tests {
         )
         .unwrap();
 
-        let e1 = evaluator.evaluate(&state1, Color::White);
-        let e2 = evaluator.evaluate(&state2, Color::White);
+        let e1 = evaluator.evaluate(&state1, Color::White, 0);
+        let e2 = evaluator.evaluate(&state2, Color::White, 0);
         assert!(e2 > e1);
 
-        let e1 = evaluator.evaluate(&state1, Color::Black);
-        let e2 = evaluator.evaluate(&state2, Color::Black);
+        let e1 = evaluator.evaluate(&state1, Color::Black, 0);
+        let e2 = evaluator.evaluate(&state2, Color::Black, 0);
         assert!(e2 < e1);
     }
 }

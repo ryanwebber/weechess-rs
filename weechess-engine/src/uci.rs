@@ -1,5 +1,4 @@
 use std::{
-    fmt::Display,
     io::{stdin, BufRead},
     sync::mpsc,
     thread,
@@ -14,7 +13,7 @@ use crate::{
 
 use rand::Rng;
 use weechess_core::{
-    notation::{try_from_notation, Fen},
+    notation::{into_notation, lan::Lan, try_from_notation, Fen},
     Move, MoveQuery, Piece, Square, State,
 };
 
@@ -79,7 +78,7 @@ impl Client {
                         let moves = moves.iter().collect::<Vec<_>>();
                         let m = moves[rng.gen_range(0..moves.len())];
                         println!("info string book move: {}", m);
-                        println!("bestmove {}", LongAlgebraicMoveNotation::from(m));
+                        println!("bestmove {}", into_notation::<_, Lan>(m));
 
                         continue;
                     }
@@ -261,7 +260,7 @@ impl Search {
                 match event {
                     searcher::StatusEvent::BestMove { line, evaluation } => {
                         println!("info score cp {}", evaluation.cp());
-                        println!("info pv {}", Pv::from(&line[..]));
+                        println!("info pv {}", into_notation::<_, Lan>(&&line[..]));
                         best_line = line;
                     }
                     searcher::StatusEvent::Progress {
@@ -317,45 +316,5 @@ impl Search {
         let artifact = self.search_handle.join().unwrap();
         self.write_handle.join().unwrap();
         artifact
-    }
-}
-
-struct LongAlgebraicMoveNotation<'a>(&'a Move);
-
-impl<'a> From<&'a Move> for LongAlgebraicMoveNotation<'a> {
-    fn from(mv: &'a Move) -> Self {
-        Self(mv)
-    }
-}
-
-impl<'a> Display for LongAlgebraicMoveNotation<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.0.origin(), self.0.destination())?;
-        if let Some(promotion) = self.0.promotion() {
-            write!(f, "{}", Into::<char>::into(promotion).to_ascii_lowercase())?;
-        }
-
-        Ok(())
-    }
-}
-
-struct Pv<'a>(&'a [Move]);
-
-impl<'a> From<&'a [Move]> for Pv<'a> {
-    fn from(moves: &'a [Move]) -> Self {
-        Self(moves)
-    }
-}
-
-impl<'a> Display for Pv<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (i, mv) in self.0.iter().enumerate() {
-            write!(f, "{}", LongAlgebraicMoveNotation(mv))?;
-            if i < self.0.len() - 1 {
-                write!(f, " ")?;
-            }
-        }
-
-        Ok(())
     }
 }

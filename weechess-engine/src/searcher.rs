@@ -23,7 +23,7 @@ const DEFAULT_TRANSPOSITION_TABLE_SIZE_MB: usize = 1024;
 // There's a balance to this right now between lock contention
 // and the amount of work that can be shared between threads. This
 // value seems to be a good balance on my machine right now.
-const DEFAULT_MAX_THREAD_COUNT: usize = 8;
+const DEFAULT_MAX_THREAD_COUNT: usize = 32;
 
 type RandomNumberGenerator = ChaCha8Rng;
 
@@ -140,9 +140,18 @@ impl Searcher {
             .unwrap_or_else(|| {
                 let hasher = ZobristHasher::with(&mut rng);
                 let state_history = StateHistory::new();
-                let transpositions: TranspositionTable = TranspositionTable::with_memory(
-                    DEFAULT_TRANSPOSITION_TABLE_SIZE_MB * 1024 * 1024,
-                );
+                let transpositions = {
+                    const TABLE_COUNT: usize = 128;
+                    let tables = (0..TABLE_COUNT)
+                        .map(|_| {
+                            TranspositionTable::with_memory(
+                                DEFAULT_TRANSPOSITION_TABLE_SIZE_MB * 1024 * 1024 / TABLE_COUNT,
+                            )
+                        })
+                        .collect();
+
+                    TranspositionTableAccess::with_tables(tables)
+                };
 
                 (hasher, transpositions, state_history)
             });
@@ -154,11 +163,6 @@ impl Searcher {
 
         // Mark that we've seen this state - this will help us avoid draws by repetition in winning states
         state_history.increment(game_state_hash);
-
-        // We need to wrap the transposition table in a lock so it can be used
-        // across threads effectively. We're using a read-write lock here because the
-        // majority of our table access will be read accesses, which we can do in parallel
-        let mut transpositions = RwLock::new(transpositions);
 
         for depth in 0..max_depth {
             // Don't bother doing multiple threads if we're only searching a few moves
@@ -232,9 +236,6 @@ impl Searcher {
                     })
                     .collect()
             };
-
-            // This should be safe since our search threads have finished
-            let transpositions = transpositions.get_mut().unwrap();
 
             match results {
                 Ok(evaluations) => {
@@ -310,9 +311,6 @@ impl Searcher {
             }
         }
 
-        // We're done with the lock on transpositions, let's get it back
-        let transpositions = transpositions.into_inner().unwrap();
-
         if transpositions.saturation() > 0.5 {
             f(StatusEvent::Warning {
                 kind: WarningKind::TranspositionTableSaturated,
@@ -336,7 +334,7 @@ impl Searcher {
         token: &CancellationToken,
         hasher: &ZobristHasher,
         state_history: &StateHistory,
-        transpositions: &RwLock<TranspositionTable>,
+        transpositions: &TranspositionTableAccess,
         max_depth: usize,
         current_depth: usize,
         current_extension: usize,
@@ -371,30 +369,26 @@ impl Searcher {
 
         // First thing to do is check the transposition table to see if we've
         // searched this position to a greater depth than we're about to search now
-        {
-            // Grab read access to the transposition table and release it asap
-            let transposition_entry = { transpositions.read().unwrap().find(state_hash).copied() };
-            if let Some(entry) = transposition_entry {
-                let remaining_depth = max_depth - current_depth;
-                let remaining_depth_in_transposition = entry.max_depth - entry.depth;
-                if remaining_depth_in_transposition >= remaining_depth {
-                    // We've already searched this position to a greater depth than we're
-                    // about to search now, so we can use the existing evaluation
-                    match entry.kind {
-                        EvaluationKind::Exact => {
-                            return Ok(entry.evaluation);
-                        }
-                        EvaluationKind::UpperBound => {
-                            beta = beta.min(entry.evaluation);
-                        }
-                        EvaluationKind::LowerBound => {
-                            alpha = alpha.max(entry.evaluation);
-                        }
-                    }
-
-                    if alpha >= beta {
+        if let Some(entry) = transpositions.find(state_hash) {
+            let remaining_depth = max_depth - current_depth;
+            let remaining_depth_in_transposition = entry.max_depth - entry.depth;
+            if remaining_depth_in_transposition >= remaining_depth {
+                // We've already searched this position to a greater depth than we're
+                // about to search now, so we can use the existing evaluation
+                match entry.kind {
+                    EvaluationKind::Exact => {
                         return Ok(entry.evaluation);
                     }
+                    EvaluationKind::UpperBound => {
+                        beta = beta.min(entry.evaluation);
+                    }
+                    EvaluationKind::LowerBound => {
+                        alpha = alpha.max(entry.evaluation);
+                    }
+                }
+
+                if alpha >= beta {
+                    return Ok(entry.evaluation);
                 }
             }
         }
@@ -425,7 +419,7 @@ impl Searcher {
             // that we don't waste too much time searching bad moves first but
             // large enough that we don't always search the same moves first
             // which would negatively impact the multi-threaded performance.
-            estimation += Evaluation::from(rng.gen_range(-5..=5));
+            estimation += Evaluation::from(rng.gen_range(-10..=10));
 
             estimation
         });
@@ -483,7 +477,6 @@ impl Searcher {
             // this position. We can stop searching this position because we know that the
             // opponent will never allow us to reach this position
             if evaluation >= beta {
-                let mut transpositions = transpositions.write().unwrap();
                 transpositions.insert(
                     state_hash,
                     TranspositionEntry {
@@ -513,7 +506,6 @@ impl Searcher {
         }
 
         if let Some(best_move) = best_move {
-            let mut transpositions = transpositions.write().unwrap();
             transpositions.insert(
                 state_hash,
                 TranspositionEntry {
@@ -659,6 +651,78 @@ enum EvaluationKind {
 
 struct SearchInterrupt;
 
+/**
+ * Controls read/write access to transpositions by locking
+ * multiple individual transposition tables and doing a simple
+ * modulus hash routing to the correct table for any particular
+ * state. This allows us to crank up the number of search threads
+ * by reducing contention on a single transposition table.
+ */
+struct TranspositionTableAccess {
+    tables: Vec<RwLock<TranspositionTable>>,
+}
+
+impl TranspositionTableAccess {
+    #[cfg(test)]
+    fn small() -> Self {
+        let tables = (0..8)
+            .map(|_| TranspositionTable::with_bucket_count(1024))
+            .collect();
+
+        Self::with_tables(tables)
+    }
+
+    fn with_tables(tables: Vec<TranspositionTable>) -> Self {
+        assert!(tables.len() > 0);
+        Self {
+            tables: tables.into_iter().map(RwLock::new).collect(),
+        }
+    }
+
+    fn insert(&self, hash: Hash, entry: TranspositionEntry) {
+        let index = hash as usize % self.tables.len();
+        self.tables[index].write().unwrap().insert(hash, entry);
+    }
+
+    fn find(&self, hash: Hash) -> Option<TranspositionEntry> {
+        let index = hash as usize % self.tables.len();
+        self.tables[index].read().unwrap().find(hash).copied()
+    }
+
+    fn entries(&self) -> usize {
+        self.tables
+            .iter()
+            .map(|t| t.read().unwrap().entries())
+            .sum()
+    }
+
+    fn max_entries(&self) -> usize {
+        self.tables
+            .iter()
+            .map(|t| t.read().unwrap().max_entries())
+            .sum()
+    }
+
+    fn saturation(&self) -> f32 {
+        self.entries() as f32 / self.max_entries() as f32
+    }
+
+    fn iter_moves<'a>(
+        &'a self,
+        hasher: &'a ZobristHasher,
+        state: &State,
+        max_depth: usize,
+    ) -> impl Iterator<Item = MoveResult> + 'a {
+        TranspositionTableMoveIterator {
+            access: &self,
+            hasher,
+            max_depth,
+            current_index: 0,
+            current_game_state: state.clone(),
+        }
+    }
+}
+
 struct TranspositionTable {
     buckets: Vec<TranspositionBucket>,
     used_slots: usize,
@@ -683,21 +747,6 @@ impl TranspositionTable {
         self.buckets[bucket].find(hash)
     }
 
-    fn iter_moves<'a>(
-        &'a self,
-        hasher: &'a ZobristHasher,
-        state: &State,
-        max_depth: usize,
-    ) -> impl Iterator<Item = MoveResult> + 'a {
-        TranspositionTableMoveIterator {
-            table: self,
-            hasher,
-            max_depth,
-            current_index: 0,
-            current_game_state: state.clone(),
-        }
-    }
-
     fn insert(&mut self, hash: Hash, entry: TranspositionEntry) {
         let index = hash as usize % self.buckets.len();
         if self.buckets[index]
@@ -714,10 +763,6 @@ impl TranspositionTable {
 
     fn max_entries(&self) -> usize {
         self.buckets.len() * TranspositionBucket::BUCKET_SIZE
-    }
-
-    fn saturation(&self) -> f32 {
-        self.entries() as f32 / self.max_entries() as f32
     }
 }
 
@@ -796,7 +841,7 @@ struct TranspositionEntry {
 }
 
 struct TranspositionTableMoveIterator<'a> {
-    table: &'a TranspositionTable,
+    access: &'a TranspositionTableAccess,
     hasher: &'a ZobristHasher,
     max_depth: usize,
     current_index: usize,
@@ -812,7 +857,7 @@ impl Iterator for TranspositionTableMoveIterator<'_> {
         }
 
         let hash = self.hasher.hash(&self.current_game_state);
-        let Some(entry) = self.table.find(hash) else {
+        let Some(entry) = self.access.find(hash) else {
             return None;
         };
 
@@ -852,7 +897,7 @@ impl StateHistory {
 
 pub struct SearchArtifact {
     hasher: ZobristHasher,
-    transpositions: TranspositionTable,
+    transpositions: TranspositionTableAccess,
     state_history: StateHistory,
 }
 
@@ -1068,7 +1113,7 @@ mod tests {
             // without any draw by repitition concerns
             let artifact = SearchArtifact {
                 hasher: hasher.clone(),
-                transpositions: TranspositionTable::with_bucket_count(1024),
+                transpositions: TranspositionTableAccess::small(),
                 state_history: StateHistory::new(),
             };
 
@@ -1090,7 +1135,7 @@ mod tests {
             // path to mate, avoiding the draw by repitition
             let artifact = SearchArtifact {
                 hasher: hasher.clone(),
-                transpositions: TranspositionTable::with_bucket_count(1024),
+                transpositions: TranspositionTableAccess::small(),
                 state_history: {
                     let mut history = StateHistory::new();
                     let previous_game_state =

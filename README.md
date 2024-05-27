@@ -16,7 +16,7 @@ When architectural simplicity or code readability is in conflict with performanc
 has chosen the former in an attempt to provide a decently understandable reference for other
 developers building their own chess engines.
 
-The engine is also factored to produce a c++ library that can be used independently of the
+The engine is also factored to produce a library that can be used independently of the
 bundled UCI server or terminal application binaries.
 
 

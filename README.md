@@ -8,7 +8,7 @@ A rust port of [Weechess](https://github.com/ryanwebber/weechess/tree/main): A w
 Weechess is a small UCI compatible chess engine. From a technical standpoint, the engine implementation features:
  * Compact bit-board format for storing game data
  * Magic-number tables for fast rook, bishop, and queen attack calculations
- * Minimax search with alpha-beta pruning and transposition tables with zobrist hashing
+ * Multi-threaded minimax search with alpha-beta pruning and transposition tables with zobrist hashing
  * A simple, heuristic based position evaluator
  * A decent amount of tests
 
